@@ -4,9 +4,9 @@ Java 对照：`ToolRegistry` 类似按命令名保存 Handler 的注册表；`pr
 进入 Service 前的 JSON/schema 校验，`invoke` 才真正执行副作用。
 """
 
-from dataclasses import dataclass
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .messages import ToolCall
@@ -22,8 +22,8 @@ class ToolContext:
     工具不能自己猜工作目录，而是由 AgentRunner 明确传入，类似 Java Service
     接收一个包含租户、用户和工作目录的上下文对象。
     """
-    workspace: str
-    identity: str
+    workspace: str  # 工具执行时使用的受控工作目录。
+    identity: str  # 发起调用的用户或 Agent 身份。
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,19 +33,21 @@ class ToolResult:
     工具失败也返回 ToolResult，而不是直接让整个 Agent 崩溃。
     这样模型能看到错误，并有机会换一种做法。
     """
-    content: str
-    is_error: bool
-    error_code: str | None = None
+    content: str  # 给模型看的结果文本。
+    is_error: bool  # True 表示执行失败，但仍然是合法的工具结果。
+    error_code: str | None = None  # 机器可读错误码，例如 shell_timeout。
 
 
 def tool_success(content: str) -> ToolResult:
+    """创建成功结果；错误码必须保持为空。"""
     return ToolResult(content, False)
 
 
 def tool_error(error_code: str, message: str) -> ToolResult:
+    """创建失败结果，让模型看到可理解的错误，而不是 Python 堆栈。"""
     if not error_code.strip():
-        raise ValueError("tool error code must not be empty")
-    return ToolResult(f"Error [{error_code}]: {message}", True, error_code)
+        raise ValueError("工具错误码不能为空")
+    return ToolResult(f"工具执行错误 [{error_code}]: {message}", True, error_code)
 
 
 class ToolHandler(Protocol):
@@ -56,11 +58,11 @@ class ToolHandler(Protocol):
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
     """一个完整工具定义：名称、说明、参数格式、副作用类型和执行函数。"""
-    name: str
-    description: str
-    parameters: dict[str, Any]
-    effect: EffectClass
-    handler: ToolHandler
+    name: str  # 注册表中的唯一名称。
+    description: str  # 发送给模型的工具说明。
+    parameters: dict[str, Any]  # JSON Schema 参数约束。
+    effect: EffectClass  # 副作用分类，当前为 read/write/execute/external 之一。
+    handler: ToolHandler  # 参数校验通过后真正执行的函数。
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,32 +72,37 @@ class PreparedToolCall:
     如果准备失败，`error` 中已经放好了要返回给模型的错误结果，
     AgentRunner 不需要用异常分支处理未知工具或错误 JSON。
     """
-    call: ToolCall
-    definition: ToolDefinition | None = None
-    arguments: dict[str, Any] | None = None
-    error: ToolResult | None = None
+    call: ToolCall  # 模型原始调用，必须保留 ID。
+    definition: ToolDefinition | None = None  # 找到的工具定义。
+    arguments: dict[str, Any] | None = None  # JSON 解析并校验后的参数。
+    error: ToolResult | None = None  # 准备阶段失败时直接回填的错误。
 
 
 class ToolRegistry:
     """集中管理所有模型可以调用的工具。"""
+
     def __init__(self, definitions: dict[str, ToolDefinition] | None = None, mutable: bool = True) -> None:
+        # 复制一份字典，避免外部继续修改传入的 definitions 影响本注册表。
+        # Java 对照：类似构造器里 new HashMap<>(definitions)。
         self._definitions = dict(definitions or {})
+        # True 表示启动装配阶段允许 register；快照会改成 False。
         self._mutable = mutable
 
     @property
     def names(self) -> tuple[str, ...]:
+        """返回已注册工具名的不可变快照，便于日志和测试查看。"""
         return tuple(self._definitions)
 
     def register(self, definition: ToolDefinition) -> None:
         """注册工具，并在启动阶段尽早发现重名或非法名称。"""
         if not self._mutable:
-            raise ValueError("tool registry snapshot is immutable")
+            raise ValueError("工具注册表快照不可修改")
         if not re.fullmatch(r"[A-Za-z0-9_]+", definition.name):
-            raise ValueError(f"invalid tool name: {definition.name}")
+            raise ValueError(f"工具名称不合法: {definition.name}")
         if not definition.description.strip():
-            raise ValueError("tool description must not be empty")
+            raise ValueError("工具描述不能为空")
         if definition.name in self._definitions:
-            raise ValueError(f"tool already registered: {definition.name}")
+            raise ValueError(f"工具已经注册过: {definition.name}")
         self._definitions[definition.name] = definition
 
     def snapshot(self) -> "ToolRegistry":
@@ -117,15 +124,15 @@ class ToolRegistry:
         """
         definition = self._definitions.get(call.name)
         if definition is None:
-            return PreparedToolCall(call, error=tool_error("unknown_tool", f"Unknown tool: {call.name}"))
+            return PreparedToolCall(call, error=tool_error("unknown_tool", f"找不到工具: {call.name}"))
         try:
             raw = json.loads(call.arguments)
         except json.JSONDecodeError:
-            return PreparedToolCall(call, definition=definition, error=tool_error("invalid_json", "Tool arguments must be valid JSON"))
+            return PreparedToolCall(call, definition=definition, error=tool_error("invalid_json", "工具参数必须是合法 JSON"))
         if not isinstance(raw, dict):
-            return PreparedToolCall(call, definition=definition, error=tool_error("invalid_arguments", "Tool arguments must be a JSON object"))
+            return PreparedToolCall(call, definition=definition, error=tool_error("invalid_arguments", "工具参数必须是 JSON 对象"))
         if definition.name == "shell" and (set(raw) != {"command"} or not isinstance(raw.get("command"), str) or not raw["command"]):
-            return PreparedToolCall(call, definition=definition, error=tool_error("invalid_arguments", "Tool arguments failed schema validation"))
+            return PreparedToolCall(call, definition=definition, error=tool_error("invalid_arguments", "工具参数没有通过格式校验"))
         return PreparedToolCall(call, definition=definition, arguments=raw)
 
     def invoke(self, prepared: PreparedToolCall, context: ToolContext) -> ToolResult:
@@ -137,15 +144,16 @@ class ToolRegistry:
         if prepared.error is not None:
             return prepared.error
         if prepared.definition is None or prepared.arguments is None:
-            raise ValueError("prepared tool call is incomplete")
+            raise ValueError("准备好的工具调用不完整")
         try:
             result = prepared.definition.handler(prepared.arguments, context)
             if not isinstance(result, ToolResult):
-                return tool_error("invalid_tool_result", "Tool handler returned an invalid result")
+                return tool_error("invalid_tool_result", "工具处理函数返回了无效结果")
             if result.is_error and not result.error_code:
-                return tool_error("invalid_tool_result", "Tool handler returned an invalid result")
+                return tool_error("invalid_tool_result", "工具处理函数返回了无效结果")
             if not result.is_error and result.error_code is not None:
-                return tool_error("invalid_tool_result", "Tool handler returned an invalid result")
+                return tool_error("invalid_tool_result", "工具处理函数返回了无效结果")
             return result
-        except Exception:
-            return tool_error("tool_execution_error", "Tool execution failed")
+        # handler 是可插拔的外部代码，所有异常都要在注册表边界转换成稳定结果。
+        except Exception:  # noqa: BLE001
+            return tool_error("tool_execution_error", "工具执行失败")

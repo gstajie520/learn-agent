@@ -28,8 +28,8 @@ class IncompleteModelReplyError(AgentRunError):
 @dataclass(frozen=True, slots=True)
 class ToolAuthorizationDecision:
     """授权结果：是否允许，以及给模型看的原因。"""
-    allowed: bool
-    reason: str
+    allowed: bool  # True 表示可以执行工具；False 表示只生成拒绝结果。
+    reason: str  # 给人和模型看的原因，拒绝时尤其重要。
 
 
 class ToolAuthorizer(Protocol):
@@ -40,9 +40,9 @@ class ToolAuthorizer(Protocol):
 @dataclass(frozen=True, slots=True)
 class RunResult:
     """一次 Agent 运行结束后返回给调用方的结果。"""
-    final_text: str
-    history: tuple[ChatMessage, ...]
-    turns: int
+    final_text: str  # 模型最后一次返回的普通文本。
+    history: tuple[ChatMessage, ...]  # 完整对话副本，用于测试和审计。
+    turns: int  # 实际调用模型的次数，从 1 开始。
 
 
 class AgentRunner:
@@ -64,19 +64,19 @@ class AgentRunner:
     ) -> None:
         # 构造函数只保存依赖和长期配置。和 Java 构造器注入一样，依赖从外部传进来。
         if max_turns <= 0:
-            raise ValueError("max_turns must be a positive integer")
+            raise ValueError("max_turns 必须是正整数")
         if not identity.strip():
-            raise ValueError("identity must not be empty")
+            raise ValueError("identity 不能为空")
         if not system_prompt.strip():
-            raise ValueError("system_prompt must not be empty")
-        self._model = model
-        self._tools = tools
-        self._system_prompt = system_prompt
-        self._workspace = str(Path(workspace).resolve())
-        self._max_turns = max_turns
-        self._identity = identity
-        self._authorizer = authorizer
-        self._history: list[ChatMessage] = []
+            raise ValueError("system_prompt 不能为空")
+        self._model = model  # 模型接口：可以是真实 DeepSeek，也可以是测试 Fake。
+        self._tools = tools  # 工具注册表：保存模型可以调用的“手”。
+        self._system_prompt = system_prompt  # 每轮都要放在消息最前面的系统约束。
+        self._workspace = str(Path(workspace).resolve())  # 工具允许使用的工作目录。
+        self._max_turns = max_turns  # 单次任务最多调用模型多少次，防止死循环。
+        self._identity = identity  # 当前调用者身份，后续权限系统会使用。
+        self._authorizer = authorizer  # 可选授权器；没有时通常用于离线测试。
+        self._history: list[ChatMessage] = []  # 不包含 system prompt 的可变会话历史。
 
     @property
     def history(self) -> tuple[ChatMessage, ...]:
@@ -109,9 +109,9 @@ class AgentRunner:
 
             # length 表示回答被 token 上限截断，不能把半截内容当成最终答案。
             if reply.finish_reason == "length":
-                raise IncompleteModelReplyError("Model output reached the token limit")
+                raise IncompleteModelReplyError("模型输出达到 token 上限，回答不完整")
             if reply.finish_reason == "content_filter":
-                raise AgentRunError("Model response was blocked by the content filter")
+                raise AgentRunError("模型回答被内容过滤器拦截")
 
             # 模型消息要先入历史，后面的 tool 消息才能通过 call.id 与它配对。
             assistant = reply.message
@@ -120,7 +120,7 @@ class AgentRunner:
             # 没有工具调用，表示模型认为任务完成了，此时退出循环。
             if not assistant.tool_calls:
                 if assistant.content is None:
-                    raise AgentRunError("Model stopped without final text or tool calls")
+                    raise AgentRunError("模型已停止，但没有返回最终文本或工具调用")
                 validate_tool_pairing(self._history)
                 return RunResult(assistant.content, tuple(self._history), turn)
 
@@ -136,11 +136,12 @@ class AgentRunner:
                         # 有授权器时，必须先获得明确允许，才能进入 invoke。
                         decision = self._authorizer.authorize(prepared, context)
                         if not decision.reason.strip():
-                            raise ValueError("authorization decision reason must not be empty")
+                            raise ValueError("工具授权结果必须说明原因")
                         result = snapshot.invoke(prepared, context) if decision.allowed else tool_error("permission_denied", decision.reason)
-                    except Exception:
+                    # 授权器属于外部边界，无论抛出哪种异常都必须默认拒绝。
+                    except Exception:  # noqa: BLE001
                         # 授权系统本身报错时默认拒绝，这叫 fail-closed。
-                        result = tool_error("permission_denied", "Tool approval failed closed")
+                        result = tool_error("permission_denied", "工具授权过程发生异常，已按默认拒绝处理")
                 else:
                     # 单元测试通常不注入授权器，直接使用 Fake 工具执行器。
                     result = snapshot.invoke(prepared, context)
@@ -149,4 +150,4 @@ class AgentRunner:
                 self._history.append(tool_message(result.content, call.id))
 
         # 循环用完仍未得到最终文本，说明模型一直在调用工具。
-        raise AgentLimitError(f"Agent exceeded max_turns={self._max_turns}")
+        raise AgentLimitError(f"Agent 已达到最大模型调用轮数 max_turns={self._max_turns}")

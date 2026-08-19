@@ -12,6 +12,7 @@ from .core.profiles import ChapterProfile
 from .features.builtin_tools import create_chapter_one_tools
 
 SYSTEM_PROMPT = "You are a coding agent. Use tools when needed, inspect their results, and answer accurately."
+# Java 对照：上面是模块常量，作用近似 `private static final String SYSTEM_PROMPT`。
 
 
 def build_agent(profile: ChapterProfile, model: ModelClient, workspace: str, command_runner: CommandRunner | None = None, authorizer: ToolAuthorizer | None = None, max_turns: int = 20) -> AgentRunner:
@@ -21,5 +22,5 @@ def build_agent(profile: ChapterProfile, model: ModelClient, workspace: str, com
     没传时才创建真实 PowerShellRunner。这就是最简单的依赖注入。
     """
     if profile.chapter != 1:
-        raise ValueError(f"Chapter {profile.chapter} has not been migrated to Python yet")
+        raise ValueError(f"第 {profile.chapter} 章尚未迁移为 Python 版本")
     return AgentRunner(model, create_chapter_one_tools(command_runner or PowerShellRunner()), SYSTEM_PROMPT, workspace, max_turns=max_turns, authorizer=authorizer)

@@ -1,9 +1,9 @@
 """环境配置读取与校验。"""
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
-import os
 
 from dotenv import dotenv_values
 
@@ -11,16 +11,16 @@ from dotenv import dotenv_values
 class ConfigurationError(Exception):
     """配置不完整或格式错误，类似 Spring 启动阶段的配置绑定异常。"""
     def __init__(self, missing_fields: list[str]) -> None:
-        self.missing_fields = tuple(missing_fields)
-        super().__init__(f"Missing required settings: {', '.join(missing_fields)}")
+        self.missing_fields = tuple(missing_fields)  # 转成 tuple，避免异常创建后被外部修改。
+        super().__init__(f"缺少或填写错误的必要配置: {', '.join(missing_fields)}")
 
 
 @dataclass(frozen=True, slots=True)
 class OpenAISettings:
     """校验通过后的模型配置。后续代码不再处理空字符串。"""
-    base_url: str
-    api_key: str
-    model: str
+    base_url: str  # OpenAI 兼容服务根地址，不包含 /chat/completions。
+    api_key: str  # 服务商密钥，不能写入日志或提交 Git。
+    model: str  # 默认模型名称，例如 deepseek-v4-flash。
 
 
 def settings_from_mapping(mapping: dict[str, str | None]) -> OpenAISettings:
@@ -44,6 +44,7 @@ def settings_from_env_file(path: str | Path) -> OpenAISettings:
 
 
 def settings_from_environment() -> OpenAISettings:
+    """直接从操作系统环境变量读取配置，便于容器或 CI 使用。"""
     return settings_from_mapping({key: os.environ.get(key) for key in ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")})
 
 
@@ -53,6 +54,7 @@ def find_env_file(start: str | Path) -> Path | None:
     current = Path(start).resolve()
     if current.is_file():
         current = current.parent
+    # `*current.parents` 是序列展开，类似先 new List，再 addAll(current.getParents())。
     for directory in (current, *current.parents):
         candidate = directory / ".env"
         if candidate.is_file():

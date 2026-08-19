@@ -4,29 +4,42 @@
 收集和输出上限，核心 Agent 不直接接触 subprocess。
 """
 
-from dataclasses import dataclass
 import subprocess
+from dataclasses import dataclass
 
 from ..core.commands import CommandResult, CommandRunner
 
 
 @dataclass(frozen=True, slots=True)
 class PowerShellRunner(CommandRunner):
-    """CommandRunner 的真实 Windows 实现。"""
-    executable: str = "powershell.exe"
-    timeout_ms: int = 120_000
-    output_limit: int = 50_000
+    """CommandRunner 的真实 Windows 实现。
+
+    Java 对照：这相当于一个内部使用 `ProcessBuilder` 的实现类。
+    dataclass 自动生成构造方法，下面三个字段就是构造参数和成员变量。
+    """
+
+    executable: str = "powershell.exe"  # 要启动的程序，类似 ProcessBuilder 的第一个参数。
+    timeout_ms: int = 120_000  # 默认超时时间，单位毫秒；120_000 就是 120000。
+    output_limit: int = 50_000  # stdout 和 stderr 合并后最多保留多少个字符。
 
     def __post_init__(self) -> None:
+        """dataclass 构造完成后自动调用，用来校验构造参数。
+
+        Java 对照：相当于在构造方法末尾执行参数检查。
+        """
         if self.timeout_ms <= 0:
-            raise ValueError("timeout_ms must be a positive integer")
+            raise ValueError("timeout_ms 必须是正整数")
         if self.output_limit <= 0:
-            raise ValueError("output_limit must be a positive integer")
+            raise ValueError("output_limit 必须是正整数")
 
     def run(self, command: str, cwd: str, timeout_ms: int | None = None) -> CommandResult:
-        """启动 PowerShell 子进程并把结果收敛成 CommandResult。"""
+        """启动 PowerShell 子进程并把结果收敛成 CommandResult。
+
+        参数：command 是命令文本；cwd 是工作目录；timeout_ms 可以覆盖默认超时。
+        返回：不暴露 subprocess 对象，只返回核心层定义的 CommandResult。
+        """
         if not command:
-            raise ValueError("command must not be empty")
+            raise ValueError("command 不能为空")
 
         # subprocess 使用秒，而项目配置使用毫秒，因此这里除以 1000。
         timeout_seconds = (timeout_ms if timeout_ms is not None else self.timeout_ms) / 1000

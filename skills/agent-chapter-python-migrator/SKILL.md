@@ -63,6 +63,10 @@ Use `dataclass(frozen=True, slots=True)` for value objects, `Protocol` for injec
 
 Prefer standard library plus the smallest compatible dependencies. For OpenAI-compatible chapters use `openai` and `python-dotenv` only when the source chapter needs them. Keep tests offline by injecting fake model, command, filesystem, scheduler, or MCP boundaries.
 
+### 2.1 中文日志与错误
+
+面向学习者、终端用户和模型的日志、提示、异常说明、工具执行结果，能用自然中文表达的必须使用简体中文；这样用户不需要先翻译英文才能定位问题。机器要读取的错误码、配置键、协议字段、JSON 字段、模型的 `finish_reason` 值、Python/HTTP/SDK 类型名保留原文，中文说明放在它们旁边。例如使用 `工具执行错误 [shell_timeout]: 命令超时`，不要把机器可读的 `shell_timeout` 改成中文。测试断言应优先锁定稳定的错误码；若断言可见说明，则使用中文说明。
+
 ### 3. Port behavior, not syntax
 
 Map TypeScript concepts as follows:
@@ -83,7 +87,11 @@ Preserve error codes and externally visible text whenever tests or the source ch
 
 ### 4. Write the matching documentation
 
-Create a new root-level Markdown article named with the chapter sequence and a clear Python label, without editing the original TypeScript article. The article must:
+Create a new root-level Markdown article named with the chapter sequence and a clear Python label, without editing the original TypeScript article. Treat the original chapter article as the documentation source of truth. Perform a complete migration, not a summary or a newly invented shortened tutorial. Preserve every substantive section, argument, comparison, warning, table, production-design discussion, limitation, experiment, and conclusion from the original article. Preserve the original heading order unless a language-specific heading must be renamed. Replace only language-dependent code, file paths, commands, dependency instructions, test counts, and implementation descriptions with the generated Python project's actual behavior.
+
+Before finishing, compare the original and Python article heading lists and account for every original heading. The Python article may add a Java/Python beginner section, but must not silently remove original content.
+
+The article must:
 
 - state that it is paired with `python/chNN_agent`;
 - explain the chapter's one main capability before advanced features;
@@ -95,6 +103,8 @@ Create a new root-level Markdown article named with the chapter sequence and a c
 - explain the recommended test-first archaeology order;
 - document `.env`, offline tests, real-run prerequisites, and authorization/safety boundaries;
 - distinguish an adapter, core service, registry, and composition root.
+- explain every shown Python class field and important method in plain language when the surrounding text introduces it;
+- add Java equivalents for unfamiliar Python structures rather than assuming Python fluency.
 
 Use fenced code blocks with language tags. Keep paths and names synchronized with the Python output. Read the complete new article back before finishing; check that fences are paired and tables are valid.
 

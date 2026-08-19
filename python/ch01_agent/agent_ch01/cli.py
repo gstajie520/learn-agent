@@ -1,14 +1,14 @@
 """第 1 章命令行入口。"""
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from .adapters.openai_chat import OpenAIChatModel
 from .bootstrap import build_agent
 from .config import ConfigurationError, find_env_file, settings_from_env_file
-from .core.profiles import P01
 from .core.loop import ToolAuthorizationDecision
+from .core.profiles import P01
 from .core.tools import PreparedToolCall, ToolContext
 
 
@@ -19,6 +19,11 @@ class TerminalAuthorizer:
     """
 
     def authorize(self, prepared: PreparedToolCall, _context: ToolContext) -> ToolAuthorizationDecision:
+        """在终端展示工具名称和参数，并读取用户批准结果。
+
+        `_context` 前面的下划线表示当前方法暂时没有使用这个参数，
+        但为了满足 ToolAuthorizer 接口仍然必须保留，类似 Java 实现接口时保留未使用参数。
+        """
         print(f"\n工具调用需要批准: {prepared.definition.name if prepared.definition else 'unknown'}", file=sys.stderr)
         print(f"参数: {prepared.arguments}", file=sys.stderr)
         if not sys.stdin.isatty():
@@ -32,7 +37,7 @@ def main() -> int:
     """解析命令行、读取配置、装配 Agent，然后执行一次用户请求。"""
     # argparse 类似 Spring Shell/CLI 的参数绑定器，会自动处理 --help 和缺失参数。
     parser = argparse.ArgumentParser(description="第 1 章 Agent Loop")
-    parser.add_argument("--prompt", required=True)
+    parser.add_argument("--prompt", required=True)  # 声明必填命令行参数，类似定义一个 CLI DTO 字段。
     args = parser.parse_args()
     try:
         # 从当前章节目录向上找到共享的 python/.env。
@@ -42,13 +47,14 @@ def main() -> int:
         settings = settings_from_env_file(env_file)
         # CLI 是最外层，因此在这里创建真实模型适配器和终端授权器。
         runner = build_agent(P01, OpenAIChatModel(settings), str(Path.cwd()), authorizer=TerminalAuthorizer())
-        result = runner.run(args.prompt)
+        result = runner.run(args.prompt)  # 真正进入 AgentRunner 核心循环。
         print(result.final_text)
         return 0
     except ConfigurationError as error:
         print(f"配置错误: {error}", file=sys.stderr)
         return 2
-    except Exception as error:
+    # CLI 是最外层兜底边界：任何未分类异常都要转成中文提示和非零退出码。
+    except Exception as error:  # noqa: BLE001
         print(f"运行失败: {error}", file=sys.stderr)
         return 1
 
