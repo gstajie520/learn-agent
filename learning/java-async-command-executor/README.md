@@ -173,3 +173,67 @@ mvn -o test
 1. `Callable.call()` 是谁执行的：主线程还是线程池线程？
 2. `Future` 是任务结果本身，还是获取未来结果的凭证？
 3. `future.get()` 和 `executor.submit()` 哪一个可能等待？
+
+---
+
+## 第二课：线程池大小与任务排队
+
+### 为什么要学
+
+假设 RabbitMQ 一次送来 100 条 Agent 任务：
+
+- 每个任务都创建一个线程：线程可能太多，内存和 CPU 上下文切换压力增大；
+- 只创建两个线程：同一时间只能执行两个任务，其余任务需要排队；
+- 队列无限增长：任务不会立即失败，但可能越积越多，最终耗尽内存；
+- 队列有上限：系统容量更明确，满了以后必须拒绝、降级或让 MQ 稍后重试。
+
+因此线程池不是只有“线程数量”，而是三个部分：
+
+```text
+工作线程：现在可以执行多少任务
+任务队列：暂时可以等待多少任务
+拒绝策略：线程和队列都满了怎么办
+```
+
+### 本课示例配置
+
+```java
+ThreadPoolExecutor executor = new ThreadPoolExecutor(
+        2,                              // 核心线程数
+        2,                              // 最大线程数
+        0,
+        TimeUnit.SECONDS,
+        new ArrayBlockingQueue<Runnable>(2), // 最多排队两个任务
+        new ThreadPoolExecutor.AbortPolicy() // 满了就抛异常
+);
+```
+
+这个配置的总容量可以暂时理解为：
+
+```text
+2 个任务正在执行
++ 2 个任务正在排队
+= 同一时刻最多接收 4 个未完成任务
+```
+
+注意：这是为了学习而简化的固定线程池配置。生产系统还要根据任务耗时、机器资源、下游限流和 MQ 消费速度进行压测。
+
+### 运行示例
+
+```powershell
+Set-Location '.\learning\java-async-command-executor'
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
+mvn -o compile
+java -cp 'target/classes' learn.agent.async.ThreadPoolQueueDemo
+```
+
+重点观察：前两个任务开始执行时，后两个任务会进入队列；当前两个任务完成后，线程才会从队列取出后续任务。
+
+### 和 MQ 的关系
+
+```text
+MQ：保存并投递跨服务消息
+线程池队列：保存当前 Java 进程中等待执行的任务
+```
+
+线程池队列不能替代 MQ：Java 服务重启后，内存队列中的任务可能丢失。MQ 中未确认的消息可以重新投递。

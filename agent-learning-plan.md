@@ -14,7 +14,7 @@
 | 阶段 | 主题 | 状态 | 完成证据 |
 |---|---|---|---|
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
-| 2 | Java 并发与线程池 | IN_PROGRESS | 已改为 JDK 8 常见写法；正在学习 ExecutorService、Callable、Future |
+| 2 | Java 并发与线程池 | IN_PROGRESS | 已掌握 Future 基础；正在学习线程数、任务队列和拒绝策略 |
 | 3 | Spring Boot 后端基础 | NOT_STARTED |  |
 | 4 | Redis：状态、缓存、幂等 | NOT_STARTED |  |
 | 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
@@ -31,11 +31,11 @@
 - 前置知识：阶段 1 状态机、异常、封装和 JUnit 测试
 - 阶段状态：IN_PROGRESS
 - 开始日期：2026-08-21
-- 本阶段唯一主任务：先用 JDK 8 常见写法掌握 `ExecutorService`、`Callable` 和 `Future`，再进入 `CompletableFuture`
+- 本阶段唯一主任务：理解 `ThreadPoolExecutor` 的线程数、任务队列和拒绝策略，再进入 `CompletableFuture`
 - 概念示例路径：`learning/java-async-command-executor/README.md`
 - 完整代码路径：`learning/java-async-command-executor/src/main/java/learn/agent/async/`
 - 测试/验证命令：`$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`
-- 完成标准：能独立解释提交、获取结果、超时、取消、异常和关闭线程池；后续补充队列与 `CompletableFuture`
+- 完成标准：能解释提交、结果、超时、取消、线程数、队列和拒绝策略；后续进入 `CompletableFuture`
 
 ## 已完成内容
 
@@ -46,8 +46,9 @@
 - 已验证主源码可由 JDK 17 `javac` 编译
 - 已验证 Maven 离线测试通过；发现 Maven 默认读取旧 `JAVA_HOME` 的环境问题
 - 已通过阶段 1 验收：理解不同进程/机器的内存彼此不可见，跨实例幂等需要共享持久化边界和原子条件更新
-- 已生成第 2 阶段第一课：`learning/java-async-command-executor`，用 `ExecutorService`、`Future` 和任务句柄实现简单异步执行
-- 第 2 阶段第一课测试通过：5 个测试，0 失败、0 错误、0 跳过
+- 已生成第 2 阶段第一课：`learning/java-async-command-executor`，用 JDK 8 `ExecutorService`、`Callable` 和 `Future` 实现简单异步执行
+- 已完成第 2 阶段第二课：使用两个工作线程和容量为二的有界队列观察任务执行与排队
+- 当前并发项目测试通过：6 个测试，0 失败、0 错误、0 跳过
 - 根据学习反馈移除 `record`、自定义任务句柄和 CountDownLatch 测试，改为 Java 8 常见的 `Callable + Future + try/finally`
 
 ## 需要复习
@@ -123,3 +124,13 @@
 - 当前结论：线程池解决单 JVM 内的任务执行资源管理；它不会自动提供 MQ、Redis、幂等或真正的 HTTP 异步响应
 - 验收回答：`Callable.call()` 在线程池线程执行；`Future` 是获取未来结果的凭证；`future.get()` 可能等待
 - 下一次主任务：先用 `AgentTaskDemo` 口头复述执行顺序，再学习线程池大小、任务排队和拒绝策略
+
+### 2026-08-21（线程池大小与任务队列）
+
+- 本次目标：理解任务数量大于工作线程数量时，任务在哪里等待，以及线程和队列都满时会发生什么
+- 实际完成：生成 `ThreadPoolQueueDemo`；使用 `ThreadPoolExecutor`、两个固定工作线程、容量为二的 `ArrayBlockingQueue` 和 `AbortPolicy`
+- 运行观察：任务 1、2 立即执行；任务 3、4 进入队列；工作线程完成后继续取出排队任务
+- 代码/测试产出：增加 `ThreadPoolQueueTest` 两个规则测试；并发项目累计 6 个测试通过
+- 当前结论：工作线程决定并行数量；任务队列保存本 JVM 内等待执行的任务；拒绝策略处理线程与队列都满的情况
+- 重要边界：线程池内存队列不能替代 MQ，服务重启时内存任务可能丢失，MQ 未确认消息可重新投递
+- 下一次主任务：回答本课三个验收问题，再学习拒绝策略如何与 MQ ACK/NACK 配合
