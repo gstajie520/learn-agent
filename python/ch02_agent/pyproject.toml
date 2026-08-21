@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "agent-tutorial-ch02"
 version = "0.1.0"
 description = "第 2 章工作区文件工具的 Python 迁移版"

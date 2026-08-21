@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "agent-tutorial-ch03"
 version = "0.1.0"
 description = "第 3 章 Agent 权限策略的 Python 迁移版"
