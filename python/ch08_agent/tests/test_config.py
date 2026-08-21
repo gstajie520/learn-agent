@@ -1,0 +1,26 @@
+import pytest
+
+from agent_ch08.config import ConfigurationError, settings_from_mapping
+from agent_ch08.core.profiles import P07, profile_for_chapter
+
+
+def test_profile_for_chapter_seven_exposes_skills():
+    assert profile_for_chapter(7) is P07
+    assert "skills" in P07.capabilities
+
+
+def test_reports_all_missing_fields():
+    with pytest.raises(ConfigurationError) as error:
+        settings_from_mapping({"OPENAI_API_KEY": " "})
+    assert error.value.missing_fields == ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")
+
+
+def test_rejects_full_chat_endpoint():
+    with pytest.raises(ConfigurationError):
+        settings_from_mapping(
+            {
+                "OPENAI_BASE_URL": "https://example.test/v1/chat/completions",
+                "OPENAI_API_KEY": "key",
+                "OPENAI_MODEL": "model",
+            }
+        )
