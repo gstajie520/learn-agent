@@ -1,7 +1,7 @@
 [project]
 name = "agent-tutorial-ch13"
 version = "0.1.0"
-description = "第 12 章持久化 JSON Task DAG 的 Python 迁移版"
+description = "第 13 章后台任务与运行时事件的 Python 迁移版"
 requires-python = ">=3.11"
 dependencies = [
   "openai>=1.0.0",

@@ -68,8 +68,8 @@ def _log_hook(event: str) -> HookResult:
 
 
 def main() -> int:
-    """解析参数、读取共享配置、装配 P12 持久化任务 Agent 并运行。"""
-    parser = argparse.ArgumentParser(description="第十二章 JSON Task DAG")
+    """解析参数、读取共享配置、装配 P13 后台任务 Agent 并运行。"""
+    parser = argparse.ArgumentParser(description="第十三章后台任务 Agent")
     parser.add_argument("--prompt", required=True, help="交给 Agent 的任务")
     args = parser.parse_args()
     try:
