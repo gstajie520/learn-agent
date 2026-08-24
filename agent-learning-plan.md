@@ -7,7 +7,7 @@
 - 目标岗位：Java Agent/LLM 应用后端工程师
 - 当前优势：已有 Java 后端背景
 - 当前短板：Java 基础、MQ、Redis
-- 目标项目：`E:\cj\study\fw` 智能场景项目
+- 参考项目：`E:\cj\study\fw` 智能场景项目（可选，不作为学习路线的硬性依赖）
 
 ## 总体路线
 
@@ -16,7 +16,7 @@
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
 | 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
-| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已接入真实 Redis Lettuce 客户端；待迁移 Spring Boot 命令状态 |
+| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已接入真实 Redis Lettuce 客户端；已完成命令状态 Hash 迁移示例；待学习 Spring Boot 集成与条件更新 |
 | 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
 | 6 | Agent Loop 与结构化输出 | NOT_STARTED |  |
 | 7 | LangGraph | NOT_STARTED |  |
@@ -31,7 +31,7 @@
 - 前置知识：阶段 1 状态机、异常、封装和 JUnit 测试
 - 阶段状态：IN_PROGRESS
 - 开始日期：2026-08-21
-- 本阶段唯一主任务：用 Redis 保存 commandId 状态，并用原子条件更新防止重复消费
+- 本阶段主任务：用 Redis 保存 commandId 状态，并用原子条件更新防止重复消费
 - 概念示例路径：`learning/agent-java-learning/04-redis/README.md`
 - 完整代码路径：`learning/agent-java-learning/04-redis/src/main/java/learn/agent/redis/`
 - 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`
@@ -41,6 +41,7 @@
 
 - 已确定学习方向：先 Java 基础，再 Redis/MQ，最后进入 Agent/LangGraph
 - 已理解 Harness、Graph、MQ、Redis 在智能场景中的职责边界
+- 已确认学习主线以通用基础知识为主，`fw` 只作为可选案例参考
 - 已创建 `java-agent-career-coach` 学习 Skill
 - 已生成 Java 状态机概念示例、完整 Maven 项目和 JUnit 测试
 - 已验证主源码可由 JDK 17 `javac` 编译
@@ -70,6 +71,11 @@
   - 复习原因：进入 MQ/Redis 阶段前需要明确消息、状态和通知的边界
   - 复习方式：画出 Java → MQ → Python → MQ → Java 的时序
   - 验收问题：为什么 MQ 不能代替 Redis 保存当前命令状态？
+
+- 主题：每章常见面试题
+  - 复习原因：把代码学习转成能用于面试的基础表达
+  - 复习方式：每章结束回答 3～5 道与本章相关的常见问题
+  - 验收要求：先说业务含义，再说实现方式和一个生产风险
 
 ## 下一阶段
 
@@ -190,3 +196,14 @@
 - 验证状态：真实 Redis 认证测试 `Blocked, not run`；需要设置密码后重新运行 `mvn -o test`
 - 代码规范：真实连接类、测试和资源关闭逻辑均补充中文注释
 - 下一次主任务：把阶段 3 Spring Boot 命令状态从 ConcurrentHashMap 迁移到真实 Redis
+
+### 2026-08-24（Redis Hash 命令状态）
+
+- 本次目标：把阶段 3 的 JVM 内存命令状态迁移到 Redis Hash，理解共享状态的保存、读取和过期
+- 实际完成：新增 `RedisCommandState`、`RedisCommandStateStore` 和 `RedisCommandStateDemo`；使用 Lettuce 的 `HSET`、`HGETALL`、`EXPIRE` 与 `MULTI/EXEC`
+- 代码产出：真实 Redis 状态测试包含中文注释，按 Arrange / Act / Assert 验证字段和 TTL
+- 验证状态：统一 Maven 测试 `BUILD SUCCESS`；历史与离线 Redis 测试通过；真实 Redis 状态测试因未设置 `REDIS_PASSWORD` 跳过，记为 `Blocked, not run`
+- 学习结论：Java `ConcurrentHashMap` 只解决单 JVM 状态；Redis Hash 让多个服务实例共享命令状态；Redis 不是最终业务数据库
+- 常见面试题：本课 README 已补充 Hash 与 SET 的选择、Redis 与数据库边界、MULTI/EXEC 的作用、TTL 风险
+- 复习安排：用一句话解释“幂等 claim key”和“命令 state key”分别解决什么问题
+- 下一次主任务：在 Spring Boot 中使用 Redis 保存和查询命令状态，并学习条件更新避免旧状态覆盖新状态
