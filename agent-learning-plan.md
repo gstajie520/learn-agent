@@ -16,7 +16,7 @@
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
 | 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
-| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已完成 SETNX、TTL 和幂等第一课；待接入真实 Redis |
+| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已接入真实 Redis Lettuce 客户端；待迁移 Spring Boot 命令状态 |
 | 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
 | 6 | Agent Loop 与结构化输出 | NOT_STARTED |  |
 | 7 | LangGraph | NOT_STARTED |  |
@@ -55,6 +55,9 @@
 - 统一多模块工程全量测试通过：17 个测试，0 失败、0 错误、0 跳过
 - 已生成第 4 阶段第一课：用 `RedisLikeStore` 模拟 Redis 的原子 `SETNX + TTL`，实现 commandId 幂等抢占
 - Redis 第一课包含可运行 `RedisIdempotencyDemo` 和 4 个带中文业务注释的测试；统一工程累计 21 个测试通过
+- 已完成第 4 阶段第二课：使用 Lettuce `RedisClient` 连接真实 Redis，发送 `SET NX EX`、`GET`、`TTL` 和 `DEL`
+- 本机 127.0.0.1:6379 可达但 Redis 开启认证；代码改为从 `REDIS_PASSWORD` 环境变量读取密码，未提供时跳过真实测试
+- 本次全量测试结果：历史模块和离线 Redis 测试通过；真实 Redis 测试因未提供 `REDIS_PASSWORD` 跳过，不能记为真实连接通过
 - 根据学习反馈移除 `record`、自定义任务句柄和 CountDownLatch 测试，改为 Java 8 常见的 `Callable + Future + try/finally`
 
 ## 需要复习
@@ -178,3 +181,12 @@
 - 重要边界：当前实现只模拟 Redis 语义，不能跨 JVM；下一课使用真实 Redis 和 `StringRedisTemplate`
 - 代码规范：新增类、字段、方法、业务分支和测试均使用中文注释说明用途
 - 下一次主任务：安装/确认 Redis 环境，把 Spring Boot 命令状态迁移到真实 Redis
+
+### 2026-08-24（真实 Redis 客户端）
+
+- 本次目标：从 Redis 语义模拟切换到真实 Redis 服务，理解 Java 客户端如何发送原子命令
+- 实际完成：新增 `RealRedisIdempotencyStore`，使用 Lettuce 连接 127.0.0.1:6379；实现 `SET NX EX`、`GET`、`TTL`、`DEL`
+- 教学入口：新增真实连接代码和测试；端口可达但服务要求认证，密码必须通过 `REDIS_PASSWORD` 环境变量提供，禁止硬编码和提交 Git
+- 验证状态：真实 Redis 认证测试 `Blocked, not run`；需要设置密码后重新运行 `mvn -o test`
+- 代码规范：真实连接类、测试和资源关闭逻辑均补充中文注释
+- 下一次主任务：把阶段 3 Spring Boot 命令状态从 ConcurrentHashMap 迁移到真实 Redis

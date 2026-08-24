@@ -20,6 +20,12 @@
     </properties>
 
     <dependencies>
+        <!-- Lettuce 是 Java 连接 Redis 的客户端；本课使用它的同步 API。 -->
+        <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
+            <version>6.8.2.RELEASE</version>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

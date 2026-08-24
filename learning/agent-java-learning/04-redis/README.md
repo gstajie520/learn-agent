@@ -1,6 +1,18 @@
-# Redis 第一课：共享状态、SETNX 和幂等
+# Redis 第二课：使用真实 Redis 保存幂等状态
 
 ## 这课到底是干什么的
+
+上一课的 `RedisLikeStore` 只是为了看懂 SETNX 和 TTL。这一课真正连接本机 Redis，学习 Java 客户端如何发送 Redis 命令。
+
+真实链路是：
+
+```text
+Java 消费者
+    ↓ Lettuce 客户端
+Redis 服务（127.0.0.1:6379）
+    ↓
+多个 Java 进程共享同一条 commandId 幂等记录
+```
 
 上一课的命令状态保存在：
 
@@ -30,7 +42,7 @@ SET key value NX EX 600
 第二次消费者：SETNX 失败 → 识别为重复消息
 ```
 
-本课先用 `RedisLikeStore` 模拟这条语义，让代码在没有 Redis 服务时也能运行；它不是真 Redis，README 会明确两者差异。
+本课保留 `RedisLikeStore` 离线模拟，同时新增 `RealRedisIdempotencyStore` 连接真实 Redis。
 
 ## 概念示例：先看懂 15 行
 
@@ -92,7 +104,59 @@ Redis 中记录的状态：PROCESSING
 | 进程重启数据丢失 | 可配置持久化和高可用 |
 | 只用于理解 SETNX/TTL | 可用于状态、幂等、缓存和 checkpoint |
 
-真实 Spring Boot 项目后续会使用 `StringRedisTemplate`，但业务规则不变：幂等 key、原子抢占、TTL 和失败恢复必须同时设计。
+本课使用 Lettuce 直接连接 Redis，先看懂客户端如何执行命令；后续 Spring Boot 集成课再使用 `StringRedisTemplate`。业务规则不变：幂等 key、原子抢占、TTL 和失败恢复必须同时设计。
+
+## 真实 Redis 示例
+
+```java
+try (RealRedisIdempotencyStore store = new RealRedisIdempotencyStore()) {
+    // 第一次 SET NX 成功，表示抢到执行权。
+    boolean first = store.setIfAbsent(
+            "agent:command:claim:cmd-001",
+            "PROCESSING",
+            60
+    );
+
+    // 第二次 SET NX 失败，表示重复消息。
+    boolean second = store.setIfAbsent(
+            "agent:command:claim:cmd-001",
+            "PROCESSING",
+            60
+    );
+}
+```
+
+`RealRedisIdempotencyStore` 内部执行的就是：
+
+```text
+SET agent:command:claim:cmd-001 PROCESSING NX EX 60
+```
+
+## 真实 Redis 教学入口
+
+确认本机 `127.0.0.1:6379` 已启动。如果 Redis 开启了密码认证，先在当前 PowerShell 设置环境变量：
+
+```powershell
+$env:REDIS_PASSWORD = '你的本机 Redis 密码'
+```
+
+密码只放在运行环境中，不能写入 Java 源码、README 示例真实值或 Git。
+
+然后执行：
+
+```powershell
+Set-Location '.\learning\agent-java-learning'
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
+mvn -o -pl 04-redis -am test
+```
+
+真实连接测试会自动使用 Lettuce：
+
+- Redis 不可用：跳过真实连接测试；
+- Redis 开启认证但没有设置 `REDIS_PASSWORD`：跳过并提示；
+- Redis 和密码均可用：执行真实 `SET NX EX` 测试。
+
+离线模拟测试始终执行。
 
 ## 重要风险
 
@@ -108,3 +172,4 @@ Redis 中记录的状态：PROCESSING
 2. `SETNX` 的成功和失败分别代表什么？
 3. 为什么幂等 key 需要 TTL？
 4. Redis 记录为 `PROCESSING` 后，Java 进程突然宕机，恢复时需要考虑什么？
+5. 为什么真实 Redis 连接使用完必须关闭？
