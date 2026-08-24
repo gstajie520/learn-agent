@@ -59,9 +59,26 @@ public class CommandControllerTest {
     /** 验证查询不存在的 commandId 时返回 404，而不是伪造一个空结果。 */
     @Test
     public void shouldReturn404WhenCommandDoesNotExist() throws Exception {
-        // Act + Assert：查询不存在的命令必须明确返回资源不存在。
+        // Act + Assert：查询不存在的命令必须返回统一格式的 404 错误。
         mockMvc.perform(get("/api/commands/not-found"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code", is("COMMAND_NOT_FOUND")))
+                .andExpect(jsonPath("$.message", is("command not found: not-found")));
+    }
+
+    /** 验证空指令在进入 Service 前就被参数校验拒绝。 */
+    @Test
+    public void shouldRejectBlankInstruction() throws Exception {
+        // Arrange：准备一个 instruction 为空的非法请求。
+        String requestJson = "{\"instruction\":\"   \"}";
+
+        // Act + Assert：接口返回 400 和统一错误码，不创建后台任务。
+        mockMvc.perform(post("/api/commands")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("INVALID_ARGUMENT")))
+                .andExpect(jsonPath("$.message", is("instruction 不能为空")));
     }
 
     private String waitForSuccess(String commandId) throws Exception {

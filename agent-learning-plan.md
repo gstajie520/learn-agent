@@ -15,8 +15,8 @@
 |---|---|---|---|
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
 | 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
-| 3 | Spring Boot 后端基础 | IN_PROGRESS | 已创建统一多模块工程和异步命令 HTTP API第一课 |
-| 4 | Redis：状态、缓存、幂等 | NOT_STARTED |  |
+| 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
+| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 待把内存 ConcurrentHashMap 替换为共享 Redis 状态 |
 | 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
 | 6 | Agent Loop 与结构化输出 | NOT_STARTED |  |
 | 7 | LangGraph | NOT_STARTED |  |
@@ -25,17 +25,17 @@
 
 ## 当前阶段
 
-- 阶段：3：Spring Boot 后端基础
-- 本阶段目标：把异步命令执行放进 Controller、Service 和 HTTP 状态查询接口
+- 阶段：4：Redis：状态、缓存、幂等
+- 本阶段目标：把 Spring Boot 中的命令状态从 JVM 内存迁移到共享 Redis，并实现幂等抢占
 - 为什么现在学：MQ 消费者、Agent 推理和后台任务都不会阻塞 Web 请求线程
 - 前置知识：阶段 1 状态机、异常、封装和 JUnit 测试
 - 阶段状态：IN_PROGRESS
 - 开始日期：2026-08-21
-- 本阶段唯一主任务：理解 Spring Boot 启动、Controller、Service、DTO 和异步状态查询
-- 概念示例路径：`learning/agent-java-learning/03-springboot-command-api/README.md`
-- 完整代码路径：`learning/agent-java-learning/03-springboot-command-api/src/main/java/learn/agent/command/`
+- 本阶段唯一主任务：用 Redis 保存 commandId 状态，并用原子条件更新防止重复消费
+- 概念示例路径：待生成
+- 完整代码路径：待生成
 - 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`
-- 完成标准：能解释一次 POST 请求如何进入 Controller、Service、线程池，并通过 GET 查询最终状态
+- 完成标准：能解释 Redis key、TTL、`SETNX`/条件更新和跨实例幂等，并有可运行测试
 
 ## 已完成内容
 
@@ -51,6 +51,8 @@
 - 当前并发项目测试通过：6 个测试，0 失败、0 错误、0 跳过
 - 已创建统一 Java 多模块工程：`learning/agent-java-learning/`，包含前三个阶段目录
 - 已生成第 3 阶段第一课：Spring Boot 异步命令 API，包含 POST 提交和 GET 状态查询
+- 已完成第 3 阶段第二课：为命令 API 增加 `@Valid` 请求校验、`CommandNotFoundException` 和 `@RestControllerAdvice` 统一错误响应
+- 统一多模块工程全量测试通过：17 个测试，0 失败、0 错误、0 跳过
 - 根据学习反馈移除 `record`、自定义任务句柄和 CountDownLatch 测试，改为 Java 8 常见的 `Callable + Future + try/finally`
 
 ## 需要复习
@@ -155,3 +157,12 @@
 - 测试注意：提交后的瞬时状态可能是 `PENDING` 或 `RUNNING`，测试验证状态集合和最终 `SUCCEEDED`，不把并发时序写死
 - 未解决问题：当前状态保存在 JVM 内存，重启丢失；尚未加入参数校验、统一异常、Redis 和 MQ
 - 下一次主任务：运行 Spring Boot API，理解 Controller、Service 和 DTO 的职责边界
+
+### 2026-08-24（Spring Boot 校验与异常）
+
+- 本次目标：让 HTTP 接口拒绝非法请求，并统一返回可被前端识别的错误 JSON
+- 实际完成：加入 `@Valid`、`@NotBlank`、`CommandNotFoundException`、`ApiErrorResponse` 和 `GlobalExceptionHandler`
+- 测试产出：空指令返回 `400 INVALID_ARGUMENT`；不存在命令返回 `404 COMMAND_NOT_FOUND`；Spring Boot 模块共 3 个测试通过
+- 代码规范反馈：本次新增主代码、异常类、测试类和关键断言均补充中文业务注释；继续使用 Java 8 普通类和显式写法
+- 阶段结论：阶段 3 `DONE`；Controller 负责 HTTP，Service 负责业务，Advice 负责统一错误边界
+- 下一阶段：阶段 4 Redis，替换内存状态，学习共享状态、TTL 和幂等原子操作

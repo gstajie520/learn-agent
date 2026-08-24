@@ -41,7 +41,11 @@ public class CommandService {
     }
 
     public CommandRecord find(String commandId) {
-        return records.get(commandId);
+        CommandRecord record = records.get(commandId);
+        if (record == null) {
+            throw new CommandNotFoundException(commandId);
+        }
+        return record;
     }
 
     /** Spring Boot 停止时关闭线程池，避免工作线程继续存活。 */
