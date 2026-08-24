@@ -1,0 +1,32 @@
+[project]
+name = "agent-tutorial-ch12"
+version = "0.1.0"
+description = "第 12 章持久化 JSON Task DAG 的 Python 迁移版"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.0.0",
+  "python-dotenv>=1.0.0",
+  "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.6.0", "mypy>=1.10.0", "types-PyYAML>=6.0.0"]
+
+[project.scripts]
+agent-ch12 = "agent_ch12.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_ch12*"]
+exclude = ["skills*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
