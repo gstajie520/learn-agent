@@ -103,7 +103,7 @@ PREVIEW -> APPLIED
 在 PowerShell 中执行：
 
 ```powershell
-Set-Location '.\learning\java-state-machine'
+Set-Location '.\learning\agent-java-learning\01-java-state-machine'
 $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
 mvn -o test
 ```

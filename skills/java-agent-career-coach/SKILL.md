@@ -70,6 +70,8 @@ description: 面向 Java 后端工程师的智能体与 LLM 应用求职学习�
 
 完整代码优先使用用户目标语言：Java 基础、Spring Boot、Redis 和 RabbitMQ 默认使用 Java；Python 只用于 Agent/LangGraph 服务边界。学习代码应放在独立目录，不直接改生产项目，除非用户明确要求。
 
+Java 学习代码默认集中在一个 Maven 多模块工程 `learning/agent-java-learning/` 中，并按阶段建立编号目录，例如 `01-java-state-machine`、`02-java-concurrency`、`03-springboot-command-api`。进入新阶段时新增模块目录，不要在 `learning/` 根目录不断创建互不关联的 Maven 项目。根目录 `pom.xml` 必须可以统一运行所有阶段测试。
+
 ## 讲解规则
 
 讲概念时先给结论，再给最小例子，最后说明生产风险。必须区分：

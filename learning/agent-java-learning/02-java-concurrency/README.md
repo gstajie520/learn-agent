@@ -120,7 +120,7 @@ void shutdown()
 教学入口是 `AgentTaskDemo`，它模拟一次“生成智能场景预览”的请求：
 
 ```powershell
-Set-Location '.\learning\java-async-command-executor'
+Set-Location '.\learning\agent-java-learning\02-java-concurrency'
 $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
 mvn -o compile
 java -cp 'target/classes' learn.agent.async.AgentTaskDemo
@@ -161,7 +161,7 @@ java -cp 'target/classes' learn.agent.async.AgentTaskDemo
 ## 运行
 
 ```powershell
-Set-Location '.\learning\java-async-command-executor'
+Set-Location '.\learning\agent-java-learning\02-java-concurrency'
 $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
 mvn -o test
 ```
@@ -221,7 +221,7 @@ ThreadPoolExecutor executor = new ThreadPoolExecutor(
 ### 运行示例
 
 ```powershell
-Set-Location '.\learning\java-async-command-executor'
+Set-Location '.\learning\agent-java-learning\02-java-concurrency'
 $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
 mvn -o compile
 java -cp 'target/classes' learn.agent.async.ThreadPoolQueueDemo
