@@ -16,7 +16,7 @@
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
 | 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
-| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 待把内存 ConcurrentHashMap 替换为共享 Redis 状态 |
+| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已完成 SETNX、TTL 和幂等第一课；待接入真实 Redis |
 | 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
 | 6 | Agent Loop 与结构化输出 | NOT_STARTED |  |
 | 7 | LangGraph | NOT_STARTED |  |
@@ -32,8 +32,8 @@
 - 阶段状态：IN_PROGRESS
 - 开始日期：2026-08-21
 - 本阶段唯一主任务：用 Redis 保存 commandId 状态，并用原子条件更新防止重复消费
-- 概念示例路径：待生成
-- 完整代码路径：待生成
+- 概念示例路径：`learning/agent-java-learning/04-redis/README.md`
+- 完整代码路径：`learning/agent-java-learning/04-redis/src/main/java/learn/agent/redis/`
 - 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`
 - 完成标准：能解释 Redis key、TTL、`SETNX`/条件更新和跨实例幂等，并有可运行测试
 
@@ -53,6 +53,8 @@
 - 已生成第 3 阶段第一课：Spring Boot 异步命令 API，包含 POST 提交和 GET 状态查询
 - 已完成第 3 阶段第二课：为命令 API 增加 `@Valid` 请求校验、`CommandNotFoundException` 和 `@RestControllerAdvice` 统一错误响应
 - 统一多模块工程全量测试通过：17 个测试，0 失败、0 错误、0 跳过
+- 已生成第 4 阶段第一课：用 `RedisLikeStore` 模拟 Redis 的原子 `SETNX + TTL`，实现 commandId 幂等抢占
+- Redis 第一课包含可运行 `RedisIdempotencyDemo` 和 4 个带中文业务注释的测试；统一工程累计 21 个测试通过
 - 根据学习反馈移除 `record`、自定义任务句柄和 CountDownLatch 测试，改为 Java 8 常见的 `Callable + Future + try/finally`
 
 ## 需要复习
@@ -68,10 +70,10 @@
 
 ## 下一阶段
 
-- 阶段：2：Java 并发与线程池
-- 主题：线程池、任务提交、超时、Future 和 CompletableFuture
-- 进入条件：阶段 1 状态机测试全部通过，并能解释非法迁移和终态保护
-- 预告产出：一个可超时、可取消、可观察的异步命令执行器
+- 阶段：4：Redis：状态、缓存、幂等
+- 主题：使用真实 Redis 和 Spring Boot `StringRedisTemplate` 保存命令状态
+- 进入条件：能解释 `SETNX` 成功/失败、TTL 和重复消息的关系
+- 预告产出：把阶段 3 的 `ConcurrentHashMap` 状态迁移到共享 Redis
 
 ## 学习会话记录
 
@@ -166,3 +168,13 @@
 - 代码规范反馈：本次新增主代码、异常类、测试类和关键断言均补充中文业务注释；继续使用 Java 8 普通类和显式写法
 - 阶段结论：阶段 3 `DONE`；Controller 负责 HTTP，Service 负责业务，Advice 负责统一错误边界
 - 下一阶段：阶段 4 Redis，替换内存状态，学习共享状态、TTL 和幂等原子操作
+
+### 2026-08-24（Redis SETNX 与幂等第一课）
+
+- 本次目标：理解两个消费者处理同一 commandId 时，如何只允许一个消费者执行业务
+- 实际完成：新增 `04-redis` 模块；实现 `RedisLikeStore.setIfAbsent()`、TTL、`IdempotencyService` 和教学入口
+- 运行结果：第一次消费返回 `CLAIMED`；重复消费返回 `ALREADY_CLAIMED`
+- 测试产出：验证 SETNX 首次成功、重复失败、TTL 过期可重新抢占、空 commandId 被拒绝；Redis 模块 4 个测试通过
+- 重要边界：当前实现只模拟 Redis 语义，不能跨 JVM；下一课使用真实 Redis 和 `StringRedisTemplate`
+- 代码规范：新增类、字段、方法、业务分支和测试均使用中文注释说明用途
+- 下一次主任务：安装/确认 Redis 环境，把 Spring Boot 命令状态迁移到真实 Redis

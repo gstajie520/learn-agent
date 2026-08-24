@@ -9,7 +9,7 @@ agent-java-learning/
   01-java-state-machine/       Java 状态机、封装、异常和测试
   02-java-concurrency/         线程池、Future、超时、队列和拒绝策略
   03-springboot-command-api/   Spring Boot 提交命令和查询状态
-  04-redis/                    后续：共享状态和幂等
+  04-redis/                    Redis 语义、SETNX、TTL 和幂等
   05-rabbitmq/                 后续：消息、ACK/NACK、重试和死信
 ```
 
