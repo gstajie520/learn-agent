@@ -1,4 +1,6 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson04;
+
+import learn.agent.redis.lesson05.SpringRedisStringCacheClient;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -45,5 +47,12 @@ public class SpringRedisConfig {
     public SpringRedisCommandStateService springRedisCommandStateService(
             StringRedisTemplate redisTemplate) {
         return new SpringRedisCommandStateService(redisTemplate);
+    }
+
+    /** 创建字符串缓存客户端，供缓存课程的业务服务使用。 */
+    @Bean
+    public SpringRedisStringCacheClient springRedisStringCacheClient(
+            StringRedisTemplate redisTemplate) {
+        return new SpringRedisStringCacheClient(redisTemplate);
     }
 }

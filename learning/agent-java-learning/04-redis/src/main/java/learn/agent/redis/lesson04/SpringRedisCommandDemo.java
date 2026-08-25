@@ -1,4 +1,6 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson04;
+
+import learn.agent.redis.lesson03.RedisCommandState;
 
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 

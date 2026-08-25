@@ -1,4 +1,4 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson03;
 
 /** 演示把阶段 3 的命令对象保存到真实 Redis Hash。 */
 public class RedisCommandStateDemo {

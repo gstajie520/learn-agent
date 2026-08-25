@@ -1,4 +1,6 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson02;
+
+import learn.agent.redis.lesson02.RealRedisIdempotencyStore;
 
 /** 真实 Redis 幂等教学入口。运行前请确认 127.0.0.1:6379 有 Redis 服务。 */
 public class RealRedisIdempotencyDemo {

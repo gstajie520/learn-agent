@@ -1,4 +1,4 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson03;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;

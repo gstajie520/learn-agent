@@ -1,8 +1,9 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson04;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import learn.agent.redis.lesson03.RedisCommandState;
 
 import java.net.Socket;
 import java.util.UUID;

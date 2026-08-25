@@ -16,7 +16,7 @@
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
 | 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
-| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate 和 Lua 条件更新；待学习缓存策略与 Spring Boot 查询集成 |
+| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
 | 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
 | 6 | Agent Loop 与结构化输出 | NOT_STARTED |  |
 | 7 | LangGraph | NOT_STARTED |  |
@@ -219,3 +219,15 @@
 - 常见面试题：本课 README 已补充 StringRedisTemplate、Lua、条件更新失败语义和构造方法注入题目
 - 复习安排：能说明“状态更新返回 false”为什么通常是业务竞争结果，而不是系统异常
 - 下一次主任务：学习 Redis 缓存读写策略、缓存穿透/击穿/雪崩的基础处理
+
+### 2026-08-25（Redis 缓存基础与课程拆包）
+
+- 本次目标：理解缓存命中、空值缓存、主动删除，以及缓存穿透、击穿、雪崩的区别；同时让每课代码和文档可独立定位
+- 实际完成：新增 `CommandCacheClient`、`SpringRedisStringCacheClient`、`CommandCacheService` 和 `CommandCacheDemo`
+- 测试产出：新增 3 个离线测试，验证重复查询只回源一次、空值缓存防穿透、删除缓存后重新回源
+- 结构调整：`04-redis` 拆成 `lessons/01` 到 `lessons/05` 五篇文档；Java 和测试分别拆到 `lesson01` 到 `lesson05` 子包；根 README 只保留导航
+- 验证状态：Redis 模块 `BUILD SUCCESS`；12 个测试中 9 个执行通过，3 个真实 Redis 测试因未设置 `REDIS_PASSWORD` 跳过，记为 `Blocked, not run`
+- 学习结论：缓存只负责加速，不是最终业务事实；单 JVM 锁不能代替跨实例协调；数据库更新成功后通常删除相关缓存
+- 常见面试题：缓存课文档已补充穿透、击穿、雪崩、空值缓存、TTL 抖动和更新后删除缓存题目
+- 复习安排：能用自己的话区分“穿透是查不存在、击穿是热点过期、雪崩是大量同时失效”
+- 下一次主任务：完成 Redis 阶段收尾，串联命令状态、幂等、缓存和 Spring Boot 查询边界，然后进入 RabbitMQ

@@ -1,4 +1,4 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson01;
 
 /**
  * Redis 幂等入门的可运行教学入口。

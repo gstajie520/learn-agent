@@ -1,4 +1,4 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson01;
 
 /**
  * 命令幂等服务。

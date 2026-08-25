@@ -1,4 +1,4 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson03;
 
 /**
  * 从 Redis Hash 读取出来的一条命令状态。

@@ -1,4 +1,4 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson03;
 
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;

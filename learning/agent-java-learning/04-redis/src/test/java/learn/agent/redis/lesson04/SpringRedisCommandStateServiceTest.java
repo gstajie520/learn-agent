@@ -1,4 +1,4 @@
-package learn.agent.redis;
+package learn.agent.redis.lesson04;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
