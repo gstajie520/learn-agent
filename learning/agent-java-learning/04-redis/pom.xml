@@ -20,6 +20,18 @@
     </properties>
 
     <dependencies>
+        <!-- Spring Context 提供 @Configuration、@Bean 和容器生命周期。 -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>5.3.31</version>
+        </dependency>
+        <!-- Spring Data Redis 提供 StringRedisTemplate 和 RedisScript。 -->
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-redis</artifactId>
+            <version>2.7.18</version>
+        </dependency>
         <!-- Lettuce 是 Java 连接 Redis 的客户端；本课使用它的同步 API。 -->
         <dependency>
             <groupId>io.lettuce</groupId>
@@ -45,6 +57,25 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.10.1</version>
+            </plugin>
+            <!-- package 时复制运行依赖，方便直接执行本课 main 方法。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-runtime-dependencies</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dependency</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

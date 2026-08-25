@@ -16,7 +16,7 @@
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
 | 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
-| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已接入真实 Redis Lettuce 客户端；已完成命令状态 Hash 迁移示例；待学习 Spring Boot 集成与条件更新 |
+| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate 和 Lua 条件更新；待学习缓存策略与 Spring Boot 查询集成 |
 | 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
 | 6 | Agent Loop 与结构化输出 | NOT_STARTED |  |
 | 7 | LangGraph | NOT_STARTED |  |
@@ -82,7 +82,7 @@
 - 阶段：4：Redis：状态、缓存、幂等
 - 主题：使用真实 Redis 和 Spring Boot `StringRedisTemplate` 保存命令状态
 - 进入条件：能解释 `SETNX` 成功/失败、TTL 和重复消息的关系
-- 预告产出：把阶段 3 的 `ConcurrentHashMap` 状态迁移到共享 Redis
+- 预告产出：把阶段 3 的 `ConcurrentHashMap` 状态迁移到共享 Redis，并使用条件更新防止旧状态覆盖新状态
 
 ## 学习会话记录
 
@@ -207,3 +207,15 @@
 - 常见面试题：本课 README 已补充 Hash 与 SET 的选择、Redis 与数据库边界、MULTI/EXEC 的作用、TTL 风险
 - 复习安排：用一句话解释“幂等 claim key”和“命令 state key”分别解决什么问题
 - 下一次主任务：在 Spring Boot 中使用 Redis 保存和查询命令状态，并学习条件更新避免旧状态覆盖新状态
+
+### 2026-08-25（Spring Redis 与条件状态更新）
+
+- 本次目标：使用 Spring 管理 Redis 连接，并让命令状态更新具备“预期旧状态匹配才允许写入”的条件
+- 实际完成：新增 `SpringRedisConfig`、`SpringRedisCommandStateStore`、`SpringRedisCommandStateService` 和 `SpringRedisCommandDemo`
+- 实现重点：使用 `StringRedisTemplate` 保存 Hash；使用 Lua 在 Redis 内完成状态检查与更新，避免 Java 先查再改产生竞态
+- 测试产出：新增 2 个离线条件更新测试和 1 个真实 Spring Redis 集成测试；离线测试验证匹配更新成功、旧状态更新失败
+- 验证状态：Redis 模块 `BUILD SUCCESS`；9 个测试中 6 个执行通过，3 个真实 Redis 测试因未设置 `REDIS_PASSWORD` 跳过，记为 `Blocked, not run`
+- 学习结论：`StringRedisTemplate` 负责 Spring 集成和生命周期；Lua 条件更新解决 Redis 内部的并发检查问题；这仍不能替代跨 Redis/数据库事务
+- 常见面试题：本课 README 已补充 StringRedisTemplate、Lua、条件更新失败语义和构造方法注入题目
+- 复习安排：能说明“状态更新返回 false”为什么通常是业务竞争结果，而不是系统异常
+- 下一次主任务：学习 Redis 缓存读写策略、缓存穿透/击穿/雪崩的基础处理

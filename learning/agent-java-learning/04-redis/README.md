@@ -153,6 +153,164 @@ java -cp '04-redis/target/classes;04-redis/target/dependency/*' learn.agent.redi
 
 ---
 
+# Redis 第四课：Spring Boot 集成与条件状态更新
+
+## 这课到底是干什么的
+
+上一课已经能用 Lettuce 直接连接 Redis。这一课把连接管理交给 Spring Boot，并解决一个更容易出错的问题：两个消费者同时修改同一条命令时，不能让旧状态覆盖新状态。
+
+错误写法是：
+
+```text
+Java 查询 status = PENDING
+Java 判断可以更新
+（另一个消费者先更新成 RUNNING）
+Java 把自己的旧判断写回 RUNNING
+```
+
+查询和更新之间存在空隙。正确做法是把“检查旧状态 + 写入新状态”放到 Redis 一次执行的 Lua 脚本里：
+
+```text
+如果 status == PENDING
+    更新为 RUNNING
+    返回 1
+否则
+    不更新
+    返回 0
+```
+
+## 为什么使用 StringRedisTemplate
+
+`StringRedisTemplate` 是 Spring Data Redis 提供的常见入口：
+
+- Spring 创建和关闭 Redis 连接，业务类不再手动管理 `RedisClient`；
+- `opsForHash()` 对应 Redis Hash 命令；
+- `execute(RedisScript, ...)` 可以执行 Lua 条件更新；
+- 本课全部使用字符串，先避免对象序列化和类型转换的额外复杂度。
+
+## 概念示例：先看懂条件更新
+
+```java
+String script =
+        "local current = redis.call('HGET', KEYS[1], 'status') "
+        + "if current == ARGV[1] then "
+        + "redis.call('HSET', KEYS[1], 'status', ARGV[2]) "
+        + "return 1 end return 0";
+
+Long result = redisTemplate.execute(
+        new DefaultRedisScript<Long>(script, Long.class),
+        Collections.singletonList("agent:command:state:cmd-001"),
+        "PENDING", "RUNNING");
+```
+
+逐行理解：
+
+1. `HGET` 读取 Redis 中当前状态；
+2. `ARGV[1]` 是调用方认为的旧状态，`ARGV[2]` 是目标状态；
+3. 只有两者相等才执行 `HSET`；
+4. 返回 `1` 表示更新成功，返回 `0` 表示状态已被别人改变；
+5. Lua 在 Redis 内连续执行，Java 线程之间不会把检查和更新拆开。
+
+## 完整业务流程
+
+```text
+Spring Boot 启动
+      ↓
+SpringRedisConfig 创建连接工厂和 StringRedisTemplate
+      ↓
+SpringRedisCommandStateStore 保存 PENDING Hash
+      ↓
+消费者调用 updateStatus(PENDING, RUNNING)
+      ├─ 返回 true：当前消费者完成状态流转
+      └─ 返回 false：状态已变化，拒绝旧更新
+```
+
+## 可运行入口
+
+如果 Redis 需要认证，在当前 PowerShell 提供密码：
+
+```powershell
+$env:REDIS_PASSWORD = '你的本机 Redis 密码'
+Set-Location '.\learning\agent-java-learning'
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
+mvn -o -pl 04-redis -am test
+```
+
+真实 Redis 可用时运行：
+
+```powershell
+java -cp '04-redis/target/classes;04-redis/target/dependency/*' learn.agent.redis.SpringRedisCommandDemo
+```
+
+预期业务输出：
+
+```text
+保存初始状态：PENDING
+第一次 PENDING -> RUNNING：true
+重复 PENDING -> RUNNING：false
+Redis 当前状态：RUNNING
+```
+
+主代码：
+
+```text
+04-redis/src/main/java/learn/agent/redis/SpringRedisConfig.java
+04-redis/src/main/java/learn/agent/redis/SpringRedisCommandStateStore.java
+04-redis/src/main/java/learn/agent/redis/SpringRedisCommandStateService.java
+04-redis/src/main/java/learn/agent/redis/SpringRedisCommandDemo.java
+```
+
+测试代码：
+
+```text
+04-redis/src/test/java/learn/agent/redis/SpringRedisCommandStateServiceTest.java
+```
+
+测试按 Arrange / Act / Assert 阅读：
+
+- Arrange：准备当前状态和 Redis 测试替身；
+- Act：调用 `updateStatus`，分别测试状态匹配和状态过期；
+- Assert：匹配时返回 `true`，旧状态时返回 `false`，并确认状态没有倒退。
+
+## 本课暂时没有解决什么
+
+- 没有把 Redis 状态和数据库业务结果放进同一个事务；
+- 没有实现完整的状态机，调用方仍需明确允许的状态流转；
+- 没有处理 Lua 脚本超时、Redis 故障和连接池容量；
+- 真实 Redis 测试仍需要本机密码，未提供凭据时只能 `Blocked, not run`。
+
+## 本课验收问题
+
+1. 为什么“先查 Redis，再在 Java 中判断，再写回 Redis”可能出错？
+2. `StringRedisTemplate` 帮我们管理了什么？
+3. Lua 条件更新返回 `1` 和 `0` 分别代表什么？
+4. Redis 原子更新能不能替代数据库事务？
+5. 为什么测试可以离线运行，但真实 Redis 测试仍可能跳过？
+
+## 常见面试题
+
+### 1. Redis 条件更新为什么要用 Lua？
+
+答题要点：单条 `HGET` 和单条 `HSET` 各自原子，但两条命令之间可能被另一个消费者插入。Lua 把检查和更新放在 Redis 内一次执行，避免旧状态覆盖新状态。
+
+### 2. `StringRedisTemplate` 和直接使用 Lettuce 有什么区别？
+
+答题要点：Lettuce 是底层客户端；`StringRedisTemplate` 是 Spring Data Redis 的封装，负责连接工厂、序列化和 Spring 生命周期。简单 Spring Boot 服务通常优先使用模板，复杂命令仍可下沉到客户端。
+
+### 3. 条件更新失败是不是系统异常？
+
+答题要点：不一定。返回 `0` 可能表示另一个消费者已经先更新，调用方应重新读取最新状态并决定 ACK、忽略或继续后续步骤；只有连接失败、脚本错误等才是技术异常。
+
+### 4. Redis Lua 脚本是不是数据库事务？
+
+答题要点：不是跨 Redis 和数据库的分布式事务。脚本在 Redis 内连续执行，但数据库写入仍可能失败，最终一致性和补偿仍需要业务设计。
+
+### 5. Spring Boot 中为什么推荐构造方法注入？
+
+答题要点：依赖在创建对象时就明确，字段可以保持不可变，测试时可以直接传入替身，不需要反射或先启动完整容器。
+
+---
+
 # Redis 第二课：使用真实 Redis 保存幂等状态
 
 ## 这课到底是干什么的
