@@ -1,2 +1,5 @@
 .codegraph/
 code/demo/
+.idea/
+**/.idea/
+.claude/settings.local.json

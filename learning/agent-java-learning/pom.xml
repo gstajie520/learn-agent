@@ -15,5 +15,6 @@
         <module>02-java-concurrency</module>
         <module>03-springboot-command-api</module>
         <module>04-redis</module>
+        <module>05-llm-client</module>
     </modules>
 </project>

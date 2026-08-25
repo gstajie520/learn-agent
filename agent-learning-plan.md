@@ -2,34 +2,50 @@
 
 > 当前路线：Java 后端 → Agent/LLM 应用后端。每次学习开始前读取，结束后更新。
 >
-> 完整路线见：[agent-engineer-roadmap.md](agent-engineer-roadmap.md)
+> 完整路线见：[agent-engineer-roadmap.md](agent-engineer-roadmap.md)。两份文档使用**同一套阶段编号**，修改其中一份必须同步另一份。
 
 ## 学习者画像
 
 - 目标岗位：Java Agent/LLM 应用后端工程师
 - 当前优势：已有 Java 后端背景
 - 当前短板：Java 基础、MQ、Redis
-- 参考项目：`E:\cj\study\fw` 智能场景项目（可选，不作为学习路线的硬性依赖）
+- 主教材：本仓库 20 章 Agent Harness 教程（`code/chapters/ch01`–`ch20`、`python/ch01_agent`–`ch20_agent`）
+- 参考项目：`E:\cj\study\fw` 智能场景项目（阶段 13 之后的综合参考，不作为前期教材）
 
 ## 总体路线
 
-当前采用 24 周路线：Java 补强 → LLM 基础 → Structured Output/Tool Calling → 手写 Agent Loop → RAG → LangGraph → Java Agent 集成 → MQ/Redis 分布式 Agent → MCP/Skills → 评估安全与求职。`fw` 作为后半程综合实战，不作为前置教材。
+16 阶段约 34 周：Java 补强（1-4）→ Agent 核心机制（5-11）→ 生产化与集成（12-15）→ 综合收尾（16）。
 
-| 阶段 | 主题 | 状态 | 完成证据 |
+主线是「先理解 Agent 运行时，再用后端工程把它生产化」。阶段 7-11 和 15 直接以本仓库章节代码为教材；`fw` 作为后半程综合参考。
+
+| 阶段 | 主题 | 对应章节 | 状态 | 完成证据 |
+|---:|---|---|---|---|
+| 1 | Java 基础与测试 | — | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
+| 2 | Java 并发与线程池 | — | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
+| 3 | Spring Boot 后端基础 | — | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
+| 4 | Redis：状态、缓存、幂等 | — | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
+| 5 | LLM 调用基础 | ch01 | NOT_STARTED |  |
+| 6 | Structured Output 与 Tool Calling | ch02 | NOT_STARTED |  |
+| 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | NOT_STARTED |  |
+| 8 | 权限、Hook 与安全边界 | ch03、ch04 | NOT_STARTED |  |
+| 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | NOT_STARTED |  |
+| 10 | RAG 与 Skill 按需加载 | ch07 | NOT_STARTED |  |
+| 11 | API 韧性与任务系统 | ch11–ch14 | NOT_STARTED |  |
+| 12 | LangGraph 状态与工作流 | — | NOT_STARTED |  |
+| 13 | Java Agent 集成 | — | NOT_STARTED |  |
+| 14 | 分布式 Agent 后端 | — | NOT_STARTED |  |
+| 15 | MCP、动态工具池与多 Agent | ch15–ch19 | NOT_STARTED |  |
+| 16 | 综合项目、评估与求职 | ch20 + `fw` | NOT_STARTED |  |
+
+### 贯穿项进度
+
+从阶段 6 起每阶段增量维护，不留到阶段 16：
+
+| 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
-| 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
-| 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
-| 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
-| 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
-| 5 | LLM 调用基础 | NOT_STARTED |  |
-| 6 | Structured Output 与 Tool Calling | NOT_STARTED |  |
-| 7 | 手写 Agent Loop | NOT_STARTED |  |
-| 8 | RAG 基础 | NOT_STARTED |  |
-| 9 | LangGraph 状态与工作流 | NOT_STARTED |  |
-| 10 | Java Agent 集成 | NOT_STARTED |  |
-| 11 | 分布式 Agent 后端 | NOT_STARTED |  |
-| 12 | MCP、Skills、连接器 | NOT_STARTED |  |
-| 13 | 安全、评估、可观测性与求职 | NOT_STARTED |  |
+| 最小评估集 | 6 | NOT_STARTED | 待创建 |
+| Trace 与结构化日志 | 7 | NOT_STARTED | 待创建 |
+| 每章面试题 | 1 | IN_PROGRESS | 阶段 4 各课 README 已含「常见面试题」 |
 
 ## 当前阶段
 
@@ -90,7 +106,9 @@
 - 阶段：4 收尾 → 阶段 5：LLM 调用基础
 - 主题：Redis 串联验收后，开始模型消息、Token、超时、重试和错误处理
 - 进入条件：能解释 Redis claim key、state key、cache key 的区别；能说明 MQ、Redis、数据库的边界
-- 预告产出：一个不依赖真实密钥的 Java 模型客户端接口、Fake 模型测试和最小调用 Demo
+- 教材：`python/ch01_agent`（先读，看清一次请求真正传了什么、返回了什么）
+- 语言顺序：先 Python 读通，再用 Java 重写同一次调用；不要跳过 Python 直接写 Java
+- 预告产出：Python 最小调用 Demo + Java 模型客户端接口和 Fake 模型测试（不依赖真实密钥）
 
 ## 学习会话记录
 
@@ -246,7 +264,19 @@
 - 调研证据：阅读 `fw` 的 Java 控制面、Python LangGraph、智能场景 Graph 说明和服务目录；参考 GitHub 上的 `NirDiamant/agents-towards-production`、`Prompthon-IO/agent-systems-handbook`、`Haozhe-Xing/agent_learning`、`Annyfee/agent-craft`、`JetBrains/koog`、`agents-flex/agents-flex`
 - 关键结论：Agent 工程师需要 LLM 基础、Structured Output、Tool Calling、Agent Loop、RAG、Graph 状态、Java 集成、MQ/Redis 生产化、MCP/Skills、安全、评估和可观测性；不能只学习中间件或框架 API
 - `fw` 定位：适合阶段后半程综合项目；不适合前期教材，因为同时包含 Java、Python、LangGraph、MQ、Redis、WebSocket、前端、语音、视频和领域模型
-- 新路线：新增 `agent-engineer-roadmap.md`，采用 24 周 10 阶段路线；先理解 Agent 机制，再用 Java 后端能力将其生产化
+- 新路线：新增 `agent-engineer-roadmap.md`，采用 24 周 10 阶段路线；先理解 Agent 机制，再用 Java 后端能力将其生产化（该编号已于同日被 16 阶段路线取代，见下一条记录）
 - 路线调整：Redis 完成一次串联验收后，不再无限扩展 Redis，下一主题切换到 LLM 调用基础，再学习 Tool Calling、手写 Loop、RAG 和 LangGraph
 - 复习安排：阅读路线文档第“四、fw 项目是否适合学习”，按 Graph State → Node → Tool → Contract → Java 命令链路顺序分析项目
 - 下一次主任务：Redis 阶段收尾验收，并创建 LLM 调用基础的独立课程目录
+
+### 2026-08-25（路线修正：统一编号并接入本仓库教程）
+
+- 本次目标：审查 `agent-engineer-roadmap.md` 是否合理，并修正发现的问题
+- 发现问题一：路线完全没有引用本仓库自身的 20 章 Agent Harness 教程（`code/chapters/ch01`–`ch20`、`python/ch01_agent`–`ch20_agent`），却让学习者去读 6 个外部 GitHub 仓库。手写 Loop、Skill、MCP、权限、Hook、API 韧性等主题在本仓库已有可运行代码和测试门禁
+- 发现问题二：阶段编号存在**三套**互相冲突的版本 —— `agent-engineer-roadmap.md`（0-10 共 11 阶段）、`agent-learning-plan.md`（13 阶段）、`skills/java-agent-career-coach/references/roadmap.md`（12 周）。同一个「阶段 4」在两份文档里分别指 Redis 和 RAG
+- 发现问题三：24 周中 8 周给 Java 后端（既有优势），仅 4 周给 Agent 核心机制（实际短板），比例倒置；且缺少「上下文工程」（压缩、产物落盘、跨会话记忆、动态 Prompt）独立阶段 —— 这与 RAG 检索不是同一件事
+- 其他修正：阶段 1 用 Java 学 LLM 调用改为 Python 优先再 Java 重写；评估集从阶段 9 收尾项改为阶段 6 起的贯穿项
+- 实际修改：重写 `agent-engineer-roadmap.md` 为 16 阶段约 34 周；重写 `skills/java-agent-career-coach/references/roadmap.md` 为编号速查摘要；更新 `SKILL.md` 的教材规则、贯穿项和 Python 使用范围；同步本档案阶段表并新增「贯穿项进度」表
+- 编号原则：保留阶段 1-4 原有含义，使阶段 1-3 的 DONE 完成证据继续有效；新增阶段插入在 5 之后
+- 三份文件现使用同一套编号，修改任一份必须同步其余两份
+- 下一次主任务：Redis 阶段（阶段 4）收尾验收，然后按阶段 5 从 `python/ch01_agent` 开始
