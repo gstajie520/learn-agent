@@ -1,6 +1,8 @@
 # Agent 学习进度档案
 
 > 当前路线：Java 后端 → Agent/LLM 应用后端。每次学习开始前读取，结束后更新。
+>
+> 完整路线见：[agent-engineer-roadmap.md](agent-engineer-roadmap.md)
 
 ## 学习者画像
 
@@ -11,17 +13,23 @@
 
 ## 总体路线
 
+当前采用 24 周路线：Java 补强 → LLM 基础 → Structured Output/Tool Calling → 手写 Agent Loop → RAG → LangGraph → Java Agent 集成 → MQ/Redis 分布式 Agent → MCP/Skills → 评估安全与求职。`fw` 作为后半程综合实战，不作为前置教材。
+
 | 阶段 | 主题 | 状态 | 完成证据 |
 |---|---|---|---|
 | 1 | Java 基础与测试 | DONE | 状态机完整项目；8 个 JUnit 测试通过；已理解跨实例幂等边界 |
 | 2 | Java 并发与线程池 | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
 | 4 | Redis：状态、缓存、幂等 | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
-| 5 | RabbitMQ：异步、确认、重试 | NOT_STARTED |  |
-| 6 | Agent Loop 与结构化输出 | NOT_STARTED |  |
-| 7 | LangGraph | NOT_STARTED |  |
-| 8 | Java/Python 异步 Agent 系统 | NOT_STARTED |  |
-| 9 | 安全、评估、可观测性与求职 | NOT_STARTED |  |
+| 5 | LLM 调用基础 | NOT_STARTED |  |
+| 6 | Structured Output 与 Tool Calling | NOT_STARTED |  |
+| 7 | 手写 Agent Loop | NOT_STARTED |  |
+| 8 | RAG 基础 | NOT_STARTED |  |
+| 9 | LangGraph 状态与工作流 | NOT_STARTED |  |
+| 10 | Java Agent 集成 | NOT_STARTED |  |
+| 11 | 分布式 Agent 后端 | NOT_STARTED |  |
+| 12 | MCP、Skills、连接器 | NOT_STARTED |  |
+| 13 | 安全、评估、可观测性与求职 | NOT_STARTED |  |
 
 ## 当前阶段
 
@@ -32,8 +40,8 @@
 - 阶段状态：IN_PROGRESS
 - 开始日期：2026-08-21
 - 本阶段主任务：用 Redis 保存 commandId 状态，并用原子条件更新防止重复消费
-- 概念示例路径：`learning/agent-java-learning/04-redis/README.md`
-- 完整代码路径：`learning/agent-java-learning/04-redis/src/main/java/learn/agent/redis/`
+- 概念示例路径：`learning/agent-java-learning/04-redis/lessons/`
+- 完整代码路径：`learning/agent-java-learning/04-redis/src/main/java/learn/agent/redis/lessonNN/`
 - 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`
 - 完成标准：能解释 Redis key、TTL、`SETNX`/条件更新和跨实例幂等，并有可运行测试
 
@@ -79,10 +87,10 @@
 
 ## 下一阶段
 
-- 阶段：4：Redis：状态、缓存、幂等
-- 主题：使用真实 Redis 和 Spring Boot `StringRedisTemplate` 保存命令状态
-- 进入条件：能解释 `SETNX` 成功/失败、TTL 和重复消息的关系
-- 预告产出：把阶段 3 的 `ConcurrentHashMap` 状态迁移到共享 Redis，并使用条件更新防止旧状态覆盖新状态
+- 阶段：4 收尾 → 阶段 5：LLM 调用基础
+- 主题：Redis 串联验收后，开始模型消息、Token、超时、重试和错误处理
+- 进入条件：能解释 Redis claim key、state key、cache key 的区别；能说明 MQ、Redis、数据库的边界
+- 预告产出：一个不依赖真实密钥的 Java 模型客户端接口、Fake 模型测试和最小调用 Demo
 
 ## 学习会话记录
 
@@ -231,3 +239,14 @@
 - 常见面试题：缓存课文档已补充穿透、击穿、雪崩、空值缓存、TTL 抖动和更新后删除缓存题目
 - 复习安排：能用自己的话区分“穿透是查不存在、击穿是热点过期、雪崩是大量同时失效”
 - 下一次主任务：完成 Redis 阶段收尾，串联命令状态、幂等、缓存和 Spring Boot 查询边界，然后进入 RabbitMQ
+
+### 2026-08-25（Agent 工程师路线重审）
+
+- 本次目标：重新评估 Java 转 Agent 开发需要的完整能力，判断 `fw` 是否适合作为主教材
+- 调研证据：阅读 `fw` 的 Java 控制面、Python LangGraph、智能场景 Graph 说明和服务目录；参考 GitHub 上的 `NirDiamant/agents-towards-production`、`Prompthon-IO/agent-systems-handbook`、`Haozhe-Xing/agent_learning`、`Annyfee/agent-craft`、`JetBrains/koog`、`agents-flex/agents-flex`
+- 关键结论：Agent 工程师需要 LLM 基础、Structured Output、Tool Calling、Agent Loop、RAG、Graph 状态、Java 集成、MQ/Redis 生产化、MCP/Skills、安全、评估和可观测性；不能只学习中间件或框架 API
+- `fw` 定位：适合阶段后半程综合项目；不适合前期教材，因为同时包含 Java、Python、LangGraph、MQ、Redis、WebSocket、前端、语音、视频和领域模型
+- 新路线：新增 `agent-engineer-roadmap.md`，采用 24 周 10 阶段路线；先理解 Agent 机制，再用 Java 后端能力将其生产化
+- 路线调整：Redis 完成一次串联验收后，不再无限扩展 Redis，下一主题切换到 LLM 调用基础，再学习 Tool Calling、手写 Loop、RAG 和 LangGraph
+- 复习安排：阅读路线文档第“四、fw 项目是否适合学习”，按 Graph State → Node → Tool → Contract → Java 命令链路顺序分析项目
+- 下一次主任务：Redis 阶段收尾验收，并创建 LLM 调用基础的独立课程目录
