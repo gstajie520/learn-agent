@@ -1,0 +1,33 @@
+[project]
+name = "agent-tutorial-ch16"
+version = "0.1.0"
+description = "第 16 章计划审批协议与优雅关机的 Python 迁移版"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.0.0",
+  "python-dotenv>=1.0.0",
+  "pyyaml>=6.0.0",
+  "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.6.0", "mypy>=1.10.0", "types-PyYAML>=6.0.0"]
+
+[project.scripts]
+agent-ch16 = "agent_ch16.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_ch16*"]
+exclude = ["skills*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
