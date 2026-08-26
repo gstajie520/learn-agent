@@ -24,8 +24,8 @@
 | 2 | Java 并发与线程池 | — | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | — | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
 | 4 | Redis：状态、缓存、幂等 | — | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
-| 5 | LLM 调用基础 | ch01 | NOT_STARTED |  |
-| 6 | Structured Output 与 Tool Calling | ch02 | NOT_STARTED |  |
+| 5 | LLM 调用基础 | ch01 | IN_PROGRESS | 第 1、2 课完成：`ModelClient` 接口、Fake 客户端、真实 HTTP 调用、超时与指数退避；122 个测试通过（3 个真实调用待配密钥） |
+| 6 | Structured Output 与 Tool Calling | ch02 | IN_PROGRESS | Structured Output 完成（作为阶段 5 第 3 课交付）：解析 + Schema 校验 + 业务校验 + 预览四步链路，52 个测试通过；Tool Calling 未开始 |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | NOT_STARTED |  |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | NOT_STARTED |  |
 | 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | NOT_STARTED |  |
@@ -43,23 +43,23 @@
 
 | 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
-| 最小评估集 | 6 | NOT_STARTED | 待创建 |
-| Trace 与结构化日志 | 7 | NOT_STARTED | 待创建 |
-| 每章面试题 | 1 | IN_PROGRESS | 阶段 4 各课 README 已含「常见面试题」 |
+| 最小评估集 | 6 | **逾期未做** | 阶段 5 第 3 课已产出 Structured Output，按规则此项现在就该建，不能再推 |
+| Trace 与结构化日志 | 7 | NOT_STARTED | 待创建。当前 `SceneOperationService` 只累加 token，没有 trace id |
+| 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 三课的文档均已含「常见面试题」 |
 
 ## 当前阶段
 
-- 阶段：4：Redis：状态、缓存、幂等
-- 本阶段目标：把 Spring Boot 中的命令状态从 JVM 内存迁移到共享 Redis，并实现幂等抢占
-- 为什么现在学：MQ 消费者、Agent 推理和后台任务都不会阻塞 Web 请求线程
-- 前置知识：阶段 1 状态机、异常、封装和 JUnit 测试
+- 阶段：5：LLM 调用基础
+- 本阶段目标：把模型调用封装成可测试的接口，看清一次请求发了什么、返回了什么，以及失败该不该重试
+- 为什么现在学：Agent 的每一步都是模型调用；不先看清请求/响应结构和失败分类，后面的 Tool Calling 和 Agent Loop 都是在猜
+- 前置知识：阶段 1 接口与异常、阶段 2 线程池与超时、阶段 3 Spring 分层
 - 阶段状态：IN_PROGRESS
-- 开始日期：2026-08-21
-- 本阶段主任务：用 Redis 保存 commandId 状态，并用原子条件更新防止重复消费
-- 概念示例路径：`learning/agent-java-learning/04-redis/lessons/`
-- 完整代码路径：`learning/agent-java-learning/04-redis/src/main/java/learn/agent/redis/lessonNN/`
+- 开始日期：2026-08-26
+- 本阶段主任务：配置 `OPENAI_*` 三个环境变量，跑通 3 个真实调用测试，完成本阶段验收；然后进入 Tool Calling
+- 概念示例路径：`learning/agent-java-learning/05-llm-client/lessons/`
+- 完整代码路径：`learning/agent-java-learning/05-llm-client/src/main/java/learn/agent/llm/lessonNN/`
 - 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`
-- 完成标准：能解释 Redis key、TTL、`SETNX`/条件更新和跨实例幂等，并有可运行测试
+- 完成标准：能解释四种消息角色、Token 分项计费、`finishReason` 为什么必须先检查，以及哪些错误值得重试；有不依赖密钥的可运行测试
 
 ## 已完成内容
 
@@ -84,6 +84,20 @@
 - 本机 127.0.0.1:6379 可达但 Redis 开启认证；代码改为从 `REDIS_PASSWORD` 环境变量读取密码，未提供时跳过真实测试
 - 本次全量测试结果：历史模块和离线 Redis 测试通过；真实 Redis 测试因未提供 `REDIS_PASSWORD` 跳过，不能记为真实连接通过
 - 根据学习反馈移除 `record`、自定义任务句柄和 CountDownLatch 测试，改为 Java 8 常见的 `Callable + Future + try/finally`
+- 已生成第 5 阶段第一课：`05-llm-client`，把模型调用抽象成 `ModelClient` 接口，业务层不依赖任何厂商 SDK
+- 第一课包含 `ChatRole`、`ChatMessage`、`ChatRequest`、`ChatResponse`、`TokenUsage`、`FinishReason`、`ModelException` 和 `SceneSummaryService`
+- 已补齐第一课的 26 个 JUnit 测试、`lessons/01-model-client.md` 课程文档和模块 README 导航
+- 已把 `05-llm-client` 注册进根 `pom.xml`，统一工程可一次运行全部阶段测试
+- 已生成第 5 阶段第二课：真实 HTTP 调用。含 `ModelSettings` 配置校验、`ChatJsonCodec` 编解码、`HttpModelClient` 传输层、`RetryingModelClient` 指数退避
+- 第二课环境变量与 `python/ch01_agent` 对齐（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`OPENAI_MODEL`），同一份配置两边通用
+- 已验证第 1 课的 `SceneSummaryService` 换成真实 HTTP 客户端后**一行未改**，证明 `ModelClient` 接口的价值
+- 已补 `learning/agent-java-learning/.gitignore` 的 `.env` 防御规则：Java 侧原先没有，密钥只从环境变量读取
+- 已按学习反馈为阶段 5 全部测试方法补方法级说明（规则 / 为什么重要 / 违反会怎样）；此前 70 个方法 0 个有说明
+- 已生成第 5 阶段第三课：Structured Output。四步链路 = 解析 → 结构校验 → 业务校验 → 预览
+- 第三课核心论点已由测试证明：结构完全合法的 JSON 仍可能业务非法（设备不存在、受保护、场景已满）
+- 第三课坚持「只生成预览，不修改数据」；`SceneSnapshot` 为不可变快照，校验全程无写操作
+- 统一多模块工程全量测试通过：151 个测试，0 失败、0 错误、6 跳过（3 个真实 Redis 缺 `REDIS_PASSWORD`，3 个真实模型调用缺 `OPENAI_*`）
+- 各模块分布：状态机 8、并发 6、Spring Boot 3、Redis 12（跳 3）、llm-client 122（跳 3）
 
 ## 需要复习
 
@@ -103,12 +117,28 @@
 
 ## 下一阶段
 
-- 阶段：4 收尾 → 阶段 5：LLM 调用基础
-- 主题：Redis 串联验收后，开始模型消息、Token、超时、重试和错误处理
-- 进入条件：能解释 Redis claim key、state key、cache key 的区别；能说明 MQ、Redis、数据库的边界
-- 教材：`python/ch01_agent`（先读，看清一次请求真正传了什么、返回了什么）
-- 语言顺序：先 Python 读通，再用 Java 重写同一次调用；不要跳过 Python 直接写 Java
-- 预告产出：Python 最小调用 Demo + Java 模型客户端接口和 Fake 模型测试（不依赖真实密钥）
+- 阶段：6 剩余部分：Tool Calling
+- 主题：工具定义（名称、描述、参数 Schema）、模型返回 `tool_calls`、程序执行工具、结果以 `TOOL` 角色回传、`tool_call_id` 配对
+- 进入条件：能说清「结构正确不代表业务合法」，并能指出第 3 课两层校验各自依赖什么
+- 教材：`python/ch02_agent`，重点参照 `core/tools.py` 的 `prepare`/`invoke` 分离
+- 预告产出：最小工具注册表 + 一次完整的「模型请求工具 → 程序执行 → 结果回传」往返
+- 关键衔接：第 3 课的 `SceneOperation` 已经是「模型输出的结构化数据」，Tool Calling 只是换成由模型主动发起；两层校验规则可直接复用到工具参数上
+
+### 路线偏差说明（需要你确认）
+
+- 路线文档把 Structured Output 列在**阶段 6**（对应 ch02），但我把它实现为**阶段 5 第 3 课**（`05-llm-client/lesson03`）
+- 理由：它直接复用第 1 课的 `ModelClient` 和 `FakeModelClient`，放在同模块可让「换实现不改业务」这条主线连贯；另起模块要重复装配
+- 影响：阶段 5 和阶段 6 的实际边界变成「阶段 5 = 调用 + 结构化输出，阶段 6 = Tool Calling」。如果你希望严格按路线分模块，我可以把 lesson03 迁到独立的 `06-structured-output`
+
+### 贯穿项欠账（必须先补）
+
+- **最小评估集**：路线要求「拿到第一个 Structured Output 就建」。第 3 课已产出 Structured Output，所以这一项**现在就该做**，不能再推
+- 建议形态：一张表，每行是「自然语言输入 → 期望 operation → 期望校验结论」，改完代码先跑一遍
+- **Trace 与结构化日志**：路线要求从阶段 7 手写 Loop 起打 trace id、轮次、工具名、耗时、token。当前 `SceneOperationService` 只累加 token，没有 trace id
+
+### 阶段 5 收尾可选项
+
+- Streaming 流式输出、连接池复用。两项都不阻塞后续阶段
 
 ## 学习会话记录
 
@@ -280,3 +310,67 @@
 - 编号原则：保留阶段 1-4 原有含义，使阶段 1-3 的 DONE 完成证据继续有效；新增阶段插入在 5 之后
 - 三份文件现使用同一套编号，修改任一份必须同步其余两份
 - 下一次主任务：Redis 阶段（阶段 4）收尾验收，然后按阶段 5 从 `python/ch01_agent` 开始
+
+### 2026-08-26（阶段 5 第 1 课：模型调用边界补全）
+
+- 本次目标：把已有的 `05-llm-client` 半成品补全为可运行、可验证、可导航的一课
+- 起始状态：`lesson01` 只有 11 个主源码文件；未注册进根 `pom.xml`、没有任何测试、没有课程文档
+- 实际完成：注册 `05-llm-client` 模块；新增 3 个测试类；新增 `lessons/01-model-client.md` 和模块 README
+- 测试产出：`SceneSummaryServiceTest` 9 个、`ChatRequestTest` 7 个、`ChatResponseTest` 10 个，共 26 个测试通过
+- 覆盖规则：截断被拦截、可重试错误重试、不可重试错误立即失败、失败请求同样计费、请求不可变、`isUsable()` 边界
+- 验证状态：`mvn -o test` 全量 `BUILD SUCCESS`；55 个测试，0 失败、0 错误、3 跳过（真实 Redis 测试未设 `REDIS_PASSWORD`）
+- 运行验证：`SceneSummaryDemo` 四个场景正常输出；Windows 控制台需要 UTF-8 代码页才能正确显示中文，非代码问题
+- 学习结论：业务代码只依赖 `ModelClient` 接口，因此不需要密钥和网络也能测出截断、限流和鉴权分支
+- 关键边界：`finishReason` 比 `content` 更重要；失败的请求同样计费；`chat()` 是阻塞调用，不能放在 Web 请求线程里
+- 常见面试题：本课文档已补充 5 道（Fake 客户端价值、finishReason、错误分类、Token 分开统计、system/user 分离）
+- 待学习者验收：口头回答本课 5 道面试题，重点是「为什么截断比报错更危险」
+- 下一次主任务：阶段 5 第 2 课，把 Fake 客户端换成真实 HTTP 调用，密钥从环境变量读取，并加入超时和退避重试
+
+### 2026-08-26（阶段 5 第 2 课：真实 HTTP 调用与退避重试）
+
+- 本次目标：把第 1 课的 Fake 客户端换成真实 HTTP 调用，并补上第 1 课欠的退避等待
+- 实际完成：新增 `lesson02` 六个主类和四个测试类；第 2 课文档；模块 README 增加第 2 课导航
+- 主类职责：`ModelSettings` 配置校验、`ChatJsonCodec` 编解码与错误映射、`HttpModelClient` 传输、`RetryingModelClient` 退避、`Sleeper` 可测等待
+- 测试产出：`ModelSettingsTest` 11 个、`ChatJsonCodecTest` 18 个、`RetryingModelClientTest` 9 个、`HttpModelClientTest` 6 个（3 个需密钥）
+- 验证状态：`mvn -o test` 全量 `BUILD SUCCESS`；99 个测试，0 失败、0 错误、6 跳过（3 真实 Redis + 3 真实模型调用）
+- 运行验证：`RealModelCallDemo` 六个场景正常输出；前五个场景无需密钥即可完整教学
+- 关键验证：`HttpModelClientTest.shouldWorkWithLesson01ServiceUnchanged` 证明第 1 课的 `SceneSummaryService` 一行未改就能对接真实模型
+- 修正的问题一：`pom.xml` 注释原写「第 3 课需要 Jackson」，与文档和 Demo 的「第 2 课」矛盾，已统一为第 2 课
+- 修正的问题二：端点拼接原本会加 `/v1`，但 Python 的 OpenAI SDK 只追加 `/chat/completions`；若不改，同一份配置在 Python 能跑、Java 会 404
+- 安全发现：Java 侧 `.gitignore` 原先没有 `.env` 规则（Python 侧有）。本课密钥只走环境变量，并补了防御性忽略规则
+- 已确认 `python/.env` 未被 git 跟踪、不在提交历史中
+- 学习结论：不设超时（默认 0 = 永不超时）会让线程池被慢请求占满；失败响应体在 `errorStream` 而非 `inputStream`；未知 `finish_reason` 要归 `UNKNOWN` 而不是 `STOP`
+- 关键边界：超时不代表服务端没执行，请求可能已计费；抖动用于避免多客户端同时重试形成惊群
+- 常见面试题：本课文档已补充 5 道（超时默认值、限流为何不能立即重试、响应为何不可信、业务代码为何不用改、为何给等待定接口）
+- 待学习者验收：配置 `OPENAI_*` 三个环境变量跑通真实调用；口头回答本课 5 道面试题
+- 下一次主任务：Structured Output，同时按路线要求建立最小评估集和 trace 日志
+
+### 2026-08-26（阶段 5 第 3 课：Structured Output 与两层校验）
+
+- 本次目标：让模型输出结构化 JSON，并建立「Schema 校验 + 业务校验」两层防线，最终只生成预览不改数据
+- 实际完成：新增 `lesson03` 十一个主类和四个测试类；第 3 课文档；模块 README 增加第 3 课导航
+- 核心链路：`propose()` 四步 —— 调模型（temperature=0）→ 解析 JSON → 结构校验 → 业务校验 → 预览
+- 两层分工：Schema 层是纯函数，用写死常量判断（字段搭配、坐标绝对范围）；业务层依赖 `SceneSnapshot`，判断设备是否存在、场景是否已满、设备是否受保护
+- 关键结论：同一个操作在不同场景下结论不同 —— 这就是业务校验必须独立成层的原因，也是「结构正确 ≠ 业务合法」的具体证据
+- 测试产出：解析 15 个、Schema 11 个、业务 15 个、端到端 11 个，共 52 个测试通过，全部离线
+- 注释覆盖：52/52 测试方法都有「规则 / 为什么重要 / 违反会怎样」三段式说明，本次一次到位，未重复上次的遗漏
+- 验证状态：`mvn -o test` 全量 `BUILD SUCCESS`；151 个测试，0 失败、0 错误、6 跳过
+- 运行验证：`StructuredOutputDemo` 八个场景全部按预期输出，含「JSON 合法但设备不存在」和「删除受保护设备」两个关键拦截
+- 实现过程中发现并修正的三个真实缺陷（不是测试问题）：
+  1. system 消息只放了 schema 说明，**没放当前场景状态** —— 模型不知道有哪些设备 id，只能编，编出来必被业务层拦掉，白烧一轮 token。已补场景边界、设备清单、受保护设备
+  2. Schema 层缺坐标绝对范围校验 —— 999999 这类明显荒谬的值应在纯函数层挡掉，不必带到需要查状态的下一层
+  3. 两层 null 策略不一致 —— 业务层原先抛异常、Schema 层返回 fail。已统一为返回 fail：校验器是防线，防线自己不该崩
+- `reason` 改为必填：预览要让用户判断模型有没有理解错，没有理由的预览等于让用户盲目点确认
+- 暴露的一个已知缺陷（如实记录，未修）：模型返回 JSON 数组时，提取算法取第一个对象，**其余元素被静默丢弃**。批量操作涉及部分成功和事务边界，留到后续阶段
+- 教训：本次多处凭记忆写方法名导致编译失败（`failure` vs `fail`、`getOperation` vs `getType`、`ADD` vs `CREATE`），应先读实际定义再写调用
+- 待学习者验收：口头回答第 3 课 5 道面试题，重点是「为什么两层校验不能合并成一层」
+- 下一次主任务：建立最小评估集（路线要求现在就做），然后进入 Tool Calling
+
+### 2026-08-26（提交前发现本地档案落后于远端）
+
+- 起因：准备提交今天的代码时发现 `origin/master` 比本地 `master` 多一个提交 `9ed1f87`（8-25 22:23，由学习者从别处推送），本地反而落后
+- 影响面：本地工作区里 `.gitignore`、`SKILL.md`、`python/ch20_agent/tests/test_mailbox.py`、`agent-learning-plan.md` 四个文件是 `9ed1f87` **之前**的旧版本
+- 风险：如果直接把工作区提交上去，会把学习者已推送的内容**反向覆盖** —— 尤其是本档案的 16 阶段表和「贯穿项进度」表会退回旧的 13 阶段版本
+- 处理方式：先 `git reset --mixed origin/master` 把分支指针前移（不动工作区、不丢提交），再从 `origin/master` 取回那三个纯回退文件，最后把今天的进度重新叠加到本档案的新版结构上
+- 教训：多机器/多客户端提交同一仓库时，提交前必须先 `git fetch` 并确认本地是否落后；只看 `git status` 看不出这一点，因为它只和本地 HEAD 比较
+- 遗留：`gcm-diagnose.log` 是 Git 凭据管理器的诊断日志，未提交也未加忽略规则，需要时自行删除

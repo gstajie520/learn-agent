@@ -22,7 +22,7 @@
     <dependencies>
         <!--
           Jackson 负责把请求对象转成 JSON、把响应 JSON 解析回对象。
-          第 3 课的真实 HTTP 调用需要它；前两课只用 Fake 客户端，不依赖网络。
+          第 2 课的真实 HTTP 调用需要它；第 1 课只用 Fake 客户端，不依赖网络。
         -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
