@@ -36,15 +36,27 @@ mvn -o -pl 05-llm-client -am test
 第 3 课尤其明显 —— 校验规则是纯逻辑，用 Fake 客户端可以精确构造「模型输出了不存在的设备 id」这类场景，
 而这在真实模型上很难稳定复现。
 
-第 2 课的配置校验、JSON 解析和退避重试同样离线可测；只有 3 个真实调用测试需要配置，未配置时**明确跳过**：
+第 2 课的配置校验、JSON 解析和退避重试同样离线可测；只有 3 个真实调用测试需要配置，未配置时**明确跳过**。
 
-```powershell
-$env:OPENAI_BASE_URL = 'https://api.deepseek.com'
-$env:OPENAI_API_KEY  = '你的密钥'
-$env:OPENAI_MODEL    = 'deepseek-v4-flash'
+配置写在 `learning/agent-java-learning/.env`，**后面所有 Java 模块共用这一份**：
+
+```dotenv
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_API_KEY=sk-你的密钥
+OPENAI_MODEL=deepseek-v4-flash
 ```
 
-环境变量名和 `python/ch01_agent` 一致，同一份配置两边通用。**密钥只从环境变量读取**，不要写进代码或创建 `.env` 文件提交。
+模板见 `learning/agent-java-learning/.env.example`（`Copy-Item .env.example .env` 后填真实值）。
+
+变量名和 `python/.env` 完全一致，同一份配置两边通用。注意一个 Java 特有的坑：**`System.getenv()` 只读进程环境变量，不读 `.env` 文件** —— Python 能直接用 `.env` 是因为 `python-dotenv` 帮它读了文件。所以 Java 侧要自己补一个加载器，就是 `EnvFile`；读取入口是 `ModelSettings.fromEnvironmentOrDotEnv()`。它从当前目录逐级向上找 `.env`，所以在工程根目录和在子模块目录里跑都能找到同一份。
+
+优先级是**操作系统环境变量覆盖 `.env`**，和 `python-dotenv` 的 `load_dotenv()` 默认行为一致。所以想临时换个模型跑一次，不用改文件：
+
+```powershell
+$env:OPENAI_MODEL = 'deepseek-v4-flash'
+```
+
+**密钥只从 `.env` 或环境变量读取**，绝不写进代码、日志或提交 Git。`.env` 已被 `learning/agent-java-learning/.gitignore` 忽略（`.env` 与 `**/.env` 两条规则），`.env.example` 则用 `!**/.env.example` 放行，因为它不含真实值。
 
 控制台运行 `main()` 前先设置 UTF-8，否则 PowerShell 默认 GBK 代码页会把中文输出显示成乱码：
 

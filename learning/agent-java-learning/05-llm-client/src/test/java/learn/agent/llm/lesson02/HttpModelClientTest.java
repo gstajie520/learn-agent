@@ -3,6 +3,7 @@ package learn.agent.llm.lesson02;
 import learn.agent.llm.lesson01.ChatMessage;
 import learn.agent.llm.lesson01.ChatRequest;
 import learn.agent.llm.lesson01.ChatResponse;
+import learn.agent.llm.lesson01.FinishReason;
 import learn.agent.llm.lesson01.ModelException;
 import learn.agent.llm.lesson01.SceneSummaryService;
 import org.junit.jupiter.api.Assumptions;
@@ -30,6 +31,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       和 {@code OPENAI_MODEL}。未配置时<b>明确跳过</b>，
  *       绝不把「没配密钥」伪装成「测试通过」。</li>
  * </ul>
+ *
+ * <p><b>怎么配</b>：在 {@code learning/agent-java-learning/.env} 里写三行
+ * （文件已被 gitignore，永不提交；模板见同目录的 {@code .env.example}）：</p>
+ *
+ * <pre>
+ * OPENAI_BASE_URL=https://api.deepseek.com
+ * OPENAI_API_KEY=sk-你的密钥
+ * OPENAI_MODEL=deepseek-v4-flash
+ * </pre>
+ *
+ * <p>这份文件和 {@code python/.env} 内容一致，Python 和 Java 共用同一套配置。
+ * 读取入口是 {@link ModelSettings#fromEnvironmentOrDotEnv()}，
+ * 操作系统环境变量优先级更高，可以临时覆盖某一项。</p>
  *
  * <p>这个跳过策略和阶段 4 的真实 Redis 测试一致：环境缺失就跳过并说明原因，
  * 不静默通过，也不让整个构建失败。</p>
@@ -134,15 +148,16 @@ public class HttpModelClientTest {
     }
 
     /**
-     * 规则：真实调用能拿到可用响应，且响应里必须带 Token 用量和请求 ID。
+     * 规则：真实调用能拿到内容非空的响应，且响应里必须带 Token 用量和请求 ID。
      *
-     * <p><b>需要真实密钥。</b>三个环境变量没配齐时，这个测试会被
-     * {@link Assumptions#assumeTrue} <b>跳过</b>。请务必分清：
+     * <p><b>需要真实密钥。</b>三个配置项没配齐时（{@code .env} 和环境变量都没有），
+     * 这个测试会被 {@link Assumptions#assumeTrue} <b>跳过</b>。请务必分清：
      * <b>跳过不等于通过</b>。它跳过时，真实网络路径完全没有被验证过——
      * TLS 握手、请求体序列化是否被供应商接受、响应 JSON 的实际字段结构、
      * 连接复用行为，这些都还是未知的。前面那些离线测试再绿，也证明不了
-     * 这条链路能通。配好 {@code OPENAI_BASE_URL} / {@code OPENAI_API_KEY} /
-     * {@code OPENAI_MODEL} 后重跑，才是真的验证过。</p>
+     * 这条链路能通。在 {@code learning/agent-java-learning/.env} 里配好
+     * {@code OPENAI_BASE_URL} / {@code OPENAI_API_KEY} / {@code OPENAI_MODEL}
+     * 后重跑，才是真的验证过。</p>
      *
      * <p><b>为什么重要：</b>{@link ChatJsonCodec} 的解析逻辑是照着文档写的，
      * 而各家供应商在 OpenAI 兼容协议上都有细微差异（{@code usage} 可能缺字段、
@@ -150,13 +165,24 @@ public class HttpModelClientTest {
      * 只有真发一次请求才能发现这些差异。断言 Token 用量大于 0 还有另一层意思：
      * 用量是成本可观测的唯一数据来源，解析丢了它，线上就没法归因账单。</p>
      *
+     * <p><b>为什么不断言 {@code isUsable()}：</b>那个方法要求
+     * {@code finishReason == STOP}，也就是要求模型这次<b>恰好没说超</b>输出上限。
+     * 而说多说少由模型决定，不由被测代码决定 —— 这条断言实测确实挂过一次
+     * （{@code finishReason=LENGTH}）。本测试要证的是「传输和解析这条链路通」，
+     * 不是「模型这次话短」。{@code STOP} 和 {@code LENGTH} 都同样证明了
+     * 响应被正确解析，所以两者都接受。{@code isUsable()} 是<b>生产侧的质量闸门</b>
+     * （截断的内容确实不能用，见 {@code SceneSummaryService}），
+     * 不是「调用成功了没」的判据，两件事不能混。</p>
+     *
      * <p><b>违反会怎样：</b>所有离线测试全绿，一上线第一个请求就失败，
      * 因为解析代码和供应商的真实返回格式对不上。这类问题只会在真实环境暴露，
-     * 而那时暴露的成本远高于现在。</p>
+     * 而那时暴露的成本远高于现在。反过来，如果把「模型话短」写进断言，
+     * 测试就会时绿时红；而随机失败的测试最终会被当成噪音忽略，
+     * 那它就再也拦不住真正的回归了 —— 比一开始没有这个测试更糟。</p>
      */
     @Test
     public void shouldCallRealModelWhenConfigured() {
-        // Arrange：只有三个环境变量都配齐时才执行这个测试。
+        // Arrange：只有三项配置都齐时才执行这个测试。
         ModelSettings settings = readSettingsOrSkip();
 
         HttpModelClient client = new HttpModelClient(settings, 10000, 60000);
@@ -164,15 +190,19 @@ public class HttpModelClientTest {
         // Act：发起一次真实调用。
         ChatResponse response = client.chat(request(settings.getModel()));
 
-        // Assert：拿到可用响应，并且四项关键信息都在。
+        // Assert：拿到内容非空的响应，并且关键信息都在。
         assertNotNull(response);
-        assertTrue(response.isUsable(),
-                "响应应当可用，实际 finishReason=" + response.getFinishReason());
-        assertTrue(response.getContent().length() > 0);
+        assertTrue(response.getContent().length() > 0,
+                "真实调用应当返回非空内容，finishReason=" + response.getFinishReason());
         // 真实调用一定有 Token 消耗，这也是成本可观测的基础。
         assertTrue(response.getUsage().getTotalTokens() > 0,
                 "真实调用应当返回 Token 用量");
         assertNotNull(response.getRequestId());
+        // STOP 是正常收尾，LENGTH 是撞到上限被截断。两者都说明响应解析成功；
+        // 出现其它值（比如 CONTENT_FILTER 或解析不出来的 null）才说明有问题。
+        assertTrue(response.getFinishReason() == FinishReason.STOP
+                        || response.getFinishReason() == FinishReason.LENGTH,
+                "finishReason 应为 STOP 或 LENGTH，实际=" + response.getFinishReason());
     }
 
     /**
@@ -244,11 +274,10 @@ public class HttpModelClientTest {
     public void shouldFailFastWithInvalidApiKey() {
         // Arrange：用真实地址配一个错误密钥。
         // 只在配置了 base_url 时执行，避免对着不存在的服务发请求。
-        String baseUrl = System.getenv("OPENAI_BASE_URL");
-        String model = System.getenv("OPENAI_MODEL");
+        String baseUrl = ModelSettings.lookup("OPENAI_BASE_URL");
+        String model = ModelSettings.lookup("OPENAI_MODEL");
         Assumptions.assumeTrue(
-                baseUrl != null && !baseUrl.trim().isEmpty()
-                        && model != null && !model.trim().isEmpty(),
+                baseUrl != null && model != null,
                 "OPENAI_BASE_URL / OPENAI_MODEL 未配置，跳过鉴权失败测试");
 
         Map<String, String> values = new HashMap<String, String>();
@@ -278,6 +307,12 @@ public class HttpModelClientTest {
      *
      * <p>用 {@code assumeTrue} 而不是 {@code Assumptions.abort}：
      * 后者是 JUnit 5.9 才加入的，本模块用的是 5.8.2。</p>
+     *
+     * <p>走 {@link ModelSettings#lookup(String)} 而不是
+     * {@link System#getenv(String)}：前者会把工程根目录的 {@code .env} 也算进来。
+     * 如果这里只看进程环境变量，就会出现「{@code .env} 配好了、
+     * 真实调用却仍然被跳过」——而跳过在报告里是绿的，
+     * 很容易被当成「测过了」。</p>
      */
     private ModelSettings readSettingsOrSkip() {
         boolean configured = isConfigured("OPENAI_BASE_URL")
@@ -286,23 +321,25 @@ public class HttpModelClientTest {
 
         // 明确跳过，不是通过。构建输出里会显示这条原因。
         Assumptions.assumeTrue(configured,
-                "OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL 未全部配置，跳过真实调用测试");
+                "OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL 未全部配置"
+                        + "（.env 与环境变量都没有），跳过真实调用测试");
 
-        return ModelSettings.fromEnvironment();
+        return ModelSettings.fromEnvironmentOrDotEnv();
     }
 
-    /** 判断某个环境变量是否有非空值。 */
+    /** 判断某个配置项是否有非空值（{@code .env} 或环境变量任一即可）。 */
     private boolean isConfigured(String name) {
-        String value = System.getenv(name);
-        return value != null && !value.trim().isEmpty();
+        return ModelSettings.lookup(name) != null;
     }
 
     private ChatRequest request(String model) {
         List<ChatMessage> messages = new ArrayList<ChatMessage>();
         messages.add(ChatMessage.system("你是场景描述助手。用一句中文总结用户提供的场景，不要提问。"));
         messages.add(ChatMessage.user("在北侧生成一台雷达。"));
-        // 测试用的输出上限给小一点，控制成本。
-        return new ChatRequest(model, messages, 0.2, 100);
+        // 输出上限给 300：既控制成本，又让「一句话中文总结」有充裕空间正常结束。
+        // 之前给 100 太紧 —— 中文很吃 token，模型稍微多说两句就会以
+        // finishReason=LENGTH 截断，把测试变成「看模型这次啰嗦不啰嗦」。
+        return new ChatRequest(model, messages, 0.2, 300);
     }
 
     private Map<String, String> fakeConfig() {

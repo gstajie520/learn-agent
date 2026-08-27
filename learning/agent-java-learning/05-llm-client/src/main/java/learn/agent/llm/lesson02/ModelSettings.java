@@ -3,6 +3,7 @@ package learn.agent.llm.lesson02;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -22,8 +23,17 @@ import java.util.Map;
  *   <li>{@code OPENAI_MODEL}：默认模型名，例如 {@code deepseek-v4-flash}。</li>
  * </ul>
  *
+ * <p><b>两个读取入口，别用错</b>：</p>
+ *
+ * <ul>
+ *   <li>{@link #fromEnvironmentOrDotEnv()}：先读工程根目录的 {@code .env}，
+ *       再让操作系统环境变量覆盖。<b>本地开发和测试用这个</b>；</li>
+ *   <li>{@link #fromEnvironment()}：只读操作系统环境变量。容器 / CI 用这个。</li>
+ * </ul>
+ *
  * <p><b>密钥绝不允许硬编码、写进日志或提交 Git。</b>本类的
- * {@link #toString()} 特意不打印 key，只打印长度。</p>
+ * {@link #toString()} 特意不打印 key，只打印长度；
+ * {@code .env} 已被 {@code learning/agent-java-learning/.gitignore} 忽略。</p>
  */
 public class ModelSettings {
 
@@ -81,10 +91,85 @@ public class ModelSettings {
         return new ModelSettings(baseUrl, apiKey, model);
     }
 
-    /** 直接从操作系统环境变量读取，容器和 CI 都用这个入口。 */
+    /** 只从操作系统环境变量读取，不看 {@code .env}。 */
     public static ModelSettings fromEnvironment() {
         Map<String, String> env = System.getenv();
         return fromMap(env);
+    }
+
+    /**
+     * 从 {@code .env} 文件 + 操作系统环境变量读取，<b>本地开发和测试用这个入口</b>。
+     *
+     * <p>为什么需要这个方法：{@link System#getenv()} 只读进程环境变量，
+     * 不读文件。所以光把配置写进 {@code .env}，
+     * {@link #fromEnvironment()} 依然读不到，表现为「文件明明写了却说没配置」。
+     * 见 {@link EnvFile} 的说明。</p>
+     *
+     * <p><b>优先级：操作系统环境变量覆盖 {@code .env}。</b>
+     * 和 {@code python-dotenv} 的 {@code load_dotenv()} 默认行为一致。
+     * 这个方向不能反 —— CI 和容器靠真实环境变量注入密钥，
+     * 如果镜像里不小心带了一个 {@code .env}，反向优先级会让线上悄悄用错密钥。</p>
+     *
+     * @throws ConfigurationException 两个来源合起来仍有字段缺失或格式非法
+     */
+    public static ModelSettings fromEnvironmentOrDotEnv() {
+        return fromMap(mergedConfiguration());
+    }
+
+    /**
+     * 合并 {@code .env} 与操作系统环境变量，后者优先。
+     *
+     * <p>包级可见，供测试和 {@link RealModelCallDemo} 检查「某个变量配了没」，
+     * 避免它们各自再写一遍合并逻辑、把优先级写反。</p>
+     */
+    static Map<String, String> mergedConfiguration() {
+        return merge(EnvFile.load(), System.getenv());
+    }
+
+    /**
+     * 纯函数版的合并，两个来源都由调用方传入。
+     *
+     * <p>拆出这个方法是为了<b>让优先级可被测试</b>：Java 不能在进程内修改
+     * 自己的环境变量，如果合并逻辑直接读 {@link System#getenv()}，
+     * 「环境变量覆盖 .env」这条规则就只能写在注释里，无法用测试钉住。
+     * 而这恰恰是最不能写反的一条规则。</p>
+     *
+     * @param fromDotEnv      {@code .env} 里的值，优先级低
+     * @param fromEnvironment 操作系统环境变量，优先级高
+     */
+    static Map<String, String> merge(Map<String, String> fromDotEnv,
+                                     Map<String, String> fromEnvironment) {
+        Map<String, String> merged = new LinkedHashMap<String, String>();
+        if (fromDotEnv != null) {
+            merged.putAll(fromDotEnv);
+        }
+        if (fromEnvironment == null) {
+            return merged;
+        }
+
+        for (Map.Entry<String, String> entry : fromEnvironment.entrySet()) {
+            String value = entry.getValue();
+            // 空白的环境变量视为「没配」，不允许它盖掉 .env 里的真实值。
+            // 否则一个手滑设成空串的变量会让配置凭空消失，且极难看出原因：
+            // 文件里明明写着，程序却报「未配置」。
+            if (value != null && !value.trim().isEmpty()) {
+                merged.put(entry.getKey(), value);
+            }
+        }
+        return merged;
+    }
+
+    /**
+     * 查一个配置项的最终值，遵循与 {@link #fromEnvironmentOrDotEnv()} 相同的优先级。
+     *
+     * @return 值；未配置或为空白时返回 {@code null}
+     */
+    static String lookup(String name) {
+        String value = mergedConfiguration().get(name);
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim();
     }
 
     /**

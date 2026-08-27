@@ -179,17 +179,23 @@ public class RealModelCallDemo {
 
         ModelSettings settings;
         try {
-            settings = ModelSettings.fromEnvironment();
+            // 走 .env + 环境变量的合并入口，不是只看环境变量。
+            settings = ModelSettings.fromEnvironmentOrDotEnv();
         } catch (ConfigurationException e) {
             System.out.println("跳过真实调用：" + e.getMessage());
             System.out.println();
-            System.out.println("要运行这一步，先设置环境变量（PowerShell）：");
-            System.out.println("  $env:OPENAI_BASE_URL = 'https://api.deepseek.com'");
-            System.out.println("  $env:OPENAI_API_KEY  = '你的密钥'");
-            System.out.println("  $env:OPENAI_MODEL    = 'deepseek-v4-flash'");
+            System.out.println("要运行这一步，在 learning/agent-java-learning/.env 里写三行：");
+            System.out.println("  OPENAI_BASE_URL=https://api.deepseek.com");
+            System.out.println("  OPENAI_API_KEY=你的密钥");
+            System.out.println("  OPENAI_MODEL=deepseek-v4-flash");
+            System.out.println("模板见同目录的 .env.example。该文件已被 gitignore，不会提交。");
+            System.out.println();
+            System.out.println("也可以用环境变量临时覆盖某一项（PowerShell）：");
+            System.out.println("  $env:OPENAI_MODEL = 'deepseek-v4-flash'");
+            System.out.println("环境变量优先级高于 .env，和 python-dotenv 的默认行为一致。");
             System.out.println();
             System.out.println("这是「明确跳过」，不是「测试通过」。");
-            System.out.println("密钥只从环境变量读取，不要写进代码或提交 Git。");
+            System.out.println("密钥只从 .env 或环境变量读取，不要写进代码或提交 Git。");
             return;
         }
 
