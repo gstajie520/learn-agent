@@ -25,12 +25,7 @@ public class OperationJsonParserTest {
 
     private final OperationJsonParser parser = new OperationJsonParser();
 
-    /**
-     * 规则：标准的纯 JSON 正常解析，字段逐一落位。
-     *
-     * <p><b>为什么重要：</b>基准线。先确认模型配合良好时能走通，
-     * 后面的失败测试才有意义 —— 否则可能是解析器拒绝一切输入。</p>
-     */
+    /** 标准纯 JSON 正常解析且字段逐一落位：这是基准线，没有它后面那些失败测试也可能只是因为解析器拒绝一切输入。 */
     @Test
     public void shouldParseCleanJson() {
         // Arrange：模型完全按要求输出。
@@ -50,18 +45,8 @@ public class OperationJsonParserTest {
         assertEquals("用户要求在北侧加雷达", operation.getReason());
     }
 
-    /**
-     * 规则：★ Markdown 代码围栏必须被剥离。
-     *
-     * <p><b>为什么重要：</b>这是模型<b>最常见</b>的不规范输出。
-     * 模型被训练成用 ```json 包裹代码，因为那在聊天界面里显示更友好。
-     * 提示词写「不要用代码围栏」能降低概率，但降不到零。</p>
-     *
-     * <p><b>违反会怎样：</b>{@code ObjectMapper} 遇到反引号直接抛
-     * {@code JsonParseException}。不处理的话你会看到一个「偶发」的解析失败 ——
-     * 同样的输入有时成功有时失败，因为模型是否加围栏本身就不稳定。
-     * 这种间歇性故障极难定位，因为你无法稳定复现。</p>
-     */
+    /** Markdown 代码围栏必须被剥离：提示词写「不要用围栏」能降低概率但降不到零，
+     * 不处理就得到一个同样输入有时成功有时失败的偶发故障，无法稳定复现所以极难定位。 */
     @Test
     public void shouldStripMarkdownCodeFence() {
         // Arrange：模型习惯性加上了围栏，还带了前后客套话。
@@ -76,15 +61,8 @@ public class OperationJsonParserTest {
         assertEquals("cam-01", result.getValue().getTargetId());
     }
 
-    /**
-     * 规则：JSON 前后的解释性文字要被忽略。
-     *
-     * <p><b>为什么重要：</b>模型爱加礼貌用语。这属于对话习惯，不是错误。</p>
-     *
-     * <p><b>为什么用括号配对而不是字符串匹配：</b>客套话的措辞千变万化，
-     * 靠匹配「好的」「这是」之类的前缀是治不完的。
-     * 定位第一个 <code>{</code> 再按括号深度配对，才是稳定做法。</p>
-     */
+    /** JSON 前后的客套话要被忽略：措辞千变万化，靠匹配「好的」「这是」这类前缀是治不完的，
+     * 定位第一个花括号再按深度配对才稳定。 */
     @Test
     public void shouldIgnoreSurroundingProse() {
         // Arrange：JSON 夹在两段说明文字中间。
@@ -101,16 +79,8 @@ public class OperationJsonParserTest {
         assertEquals(Integer.valueOf(60), result.getValue().getX());
     }
 
-    /**
-     * 规则：字符串字面量内部的花括号不能干扰括号配对。
-     *
-     * <p><b>为什么重要：</b>这是括号配对算法的经典边界。模型给的 {@code reason}
-     * 里完全可能包含花括号（比如引用了用户原话）。</p>
-     *
-     * <p><b>违反会怎样：</b>在字符串内部的 <code>}</code> 处提前截断，
-     * 得到一段残缺 JSON，解析失败。而报错会说「JSON 格式不合法」，
-     * 让人以为是模型的问题 —— 实际是我们自己的提取算法有 bug。</p>
-     */
+    /** 字符串字面量里的花括号不能干扰配对：{@code reason} 引用用户原话时就会带上花括号，
+     * 在那里提前截断会报「JSON 格式不合法」，让人去查模型，而 bug 在我们自己的提取算法里。 */
     @Test
     public void shouldHandleBracesInsideStringValues() {
         // Arrange：reason 字段里含有花括号。
@@ -125,15 +95,8 @@ public class OperationJsonParserTest {
         assertTrue(result.getValue().getReason().contains("{删掉它}"));
     }
 
-    /**
-     * 规则：完全不含 JSON 的纯文本要返回可读错误，而不是抛异常。
-     *
-     * <p><b>为什么重要：</b>模型有时干脆不按格式来，直接用自然语言回答或反问。
-     * 这时不该崩，而该返回一个能回传给模型的提示。</p>
-     *
-     * <p><b>违反会怎样：</b>抛出未捕获异常，接口返回 500。
-     * 用户看到「系统错误」，而实际上只是需要换个说法重新描述。</p>
-     */
+    /** 纯文本要返回可读错误而不是抛异常：模型有时直接反问一句，抛未捕获异常会让接口返回 500，
+     * 用户看到「系统错误」，其实只需要换个说法重新描述。 */
     @Test
     public void shouldReportErrorForPlainText() {
         // Arrange：模型反问了一句，完全没有 JSON。
@@ -147,14 +110,8 @@ public class OperationJsonParserTest {
         assertTrue(result.getErrorMessage().contains("JSON"));
     }
 
-    /**
-     * 规则：被截断的 JSON（括号未闭合）返回错误而不是抛异常。
-     *
-     * <p><b>为什么重要：</b>输出撞上 {@code maxOutputTokens} 时，恰好会产生
-     * 这种「开头合法、结尾缺失」的 JSON。这和第 1 课的
-     * {@code finishReason=LENGTH} 呼应 —— 两处都在防同一类故障，
-     * 属于纵深防御：即使上游漏了检查，这里也能兜住。</p>
-     */
+    /** 截断的 JSON 返回错误而不是抛异常：输出撞上 {@code maxOutputTokens} 时恰好产生这种「开头合法、结尾缺失」的形态，
+     * 这里和第 1 课的 {@code finishReason=LENGTH} 是同一类故障的两道防线，上游漏检时这里兜住。 */
     @Test
     public void shouldReportErrorForTruncatedJson() {
         // Arrange：JSON 写到一半断了。
@@ -170,20 +127,8 @@ public class OperationJsonParserTest {
                 "错误应提示截断或找不到完整对象，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：★ 坐标是字符串时必须拒绝，不做自动转换。
-     *
-     * <p><b>为什么重要：</b>模型经常输出 {@code "x": "30"} 而不是 {@code "x": 30}。
-     * 自动转换看起来贴心，但这是个滑坡：一旦开始容忍字符串数字，
-     * {@code "三十"} 或 {@code "abc"} 也会被转成 0 或抛出更深层的异常。</p>
-     *
-     * <p><b>违反会怎样：</b>类型混乱向下游扩散。有的地方能用有的不能，
-     * 而故障点离真正的原因很远。明确拒绝并把问题回传给模型，
-     * 它下一轮就会输出数字。</p>
-     *
-     * <p>注意这和「大小写不敏感」并不矛盾：大小写不改变语义，
-     * 字符串和数字是真正的类型差异。</p>
-     */
+    /** {@code "x": "30"} 这类字符串坐标必须拒绝而不是自动转换：一旦容忍字符串数字，
+     * {@code "三十"} 也会被转成 0，类型混乱向下游扩散后故障点离原因很远。 */
     @Test
     public void shouldRejectStringCoordinates() {
         // Arrange：坐标被写成字符串。
@@ -197,12 +142,7 @@ public class OperationJsonParserTest {
         assertTrue(result.getErrorMessage().contains("必须是数字"));
     }
 
-    /**
-     * 规则：小数坐标被拒绝。
-     *
-     * <p><b>为什么重要：</b>本课约定坐标是整数格。模型可能算出 10.5 这样的值。
-     * 静默取整会让设备落在用户没预期的位置。</p>
-     */
+    /** 小数坐标被拒绝：坐标是整数格，模型算出的 10.5 静默取整会让设备落在用户没预期的位置。 */
     @Test
     public void shouldRejectFractionalCoordinates() {
         // Arrange
@@ -216,16 +156,8 @@ public class OperationJsonParserTest {
         assertTrue(result.getErrorMessage().contains("整数"));
     }
 
-    /**
-     * 规则：未知的 operation 值要报错，并列出全部合法取值。
-     *
-     * <p><b>为什么重要：</b>模型会创造词汇 —— 你定义了 create/move/delete，
-     * 它可能输出 add、remove、update。这类幻觉枚举值在
-     * 结构上完全合法（是个字符串），只有对照枚举表才能发现。</p>
-     *
-     * <p><b>为什么错误里要列出合法值：</b>这段文字可以直接回传给模型，
-     * 它下一轮就知道该用哪个词。只说「不支持」它还得再猜一次。</p>
-     */
+    /** 未知的 operation 值要报错并列出全部合法取值：你定义 create，模型会自己造出 add，
+     * 这类幻觉枚举结构上是个合法字符串，而错误里带上合法值它下一轮才不用再猜。 */
     @Test
     public void shouldReportUnknownOperationWithValidValues() {
         // Arrange：add 不在枚举里（我们用的是 create）。
@@ -240,13 +172,8 @@ public class OperationJsonParserTest {
                 "错误信息应列出合法取值，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：未知的 deviceType 同样报错并列出合法值。
-     *
-     * <p><b>为什么重要：</b>设备类型的幻觉比操作类型更常见 ——
-     * 模型会输出「热成像雷达」「sensor」「light」这些看起来合理的值。
-     * 这正是用枚举而不是 String 的原因。</p>
-     */
+    /** 未知的 deviceType 同样报错并列出合法值：模型会输出「热成像雷达」「sensor」这些看起来合理的类型，
+     * 这正是这里用枚举而不是 String 的原因。 */
     @Test
     public void shouldReportUnknownDeviceType() {
         // Arrange：sensor 不在枚举里。
@@ -260,15 +187,8 @@ public class OperationJsonParserTest {
         assertTrue(result.getErrorMessage().contains("radar"));
     }
 
-    /**
-     * 规则：大小写不同的枚举值应当被接受。
-     *
-     * <p><b>为什么重要：</b>模型对大小写不敏感，经常输出 {@code "CREATE"} 或
-     * {@code "Radar"}。这属于<b>无害差异</b>，强行拒绝只会增加无谓的重试轮次，
-     * 白花 token 和延迟。</p>
-     *
-     * <p>宽容度要用在不影响语义的地方 —— 这是本类的核心判断标准。</p>
-     */
+    /** 大小写不同的枚举值应当被接受：{@code "CREATE"} 和 {@code "Radar"} 不改变语义，
+     * 强行拒绝只是白花一轮 token 和延迟，宽容度要用在不影响语义的地方。 */
     @Test
     public void shouldAcceptDifferentCasing() {
         // Arrange：全大写输出。
@@ -283,18 +203,8 @@ public class OperationJsonParserTest {
         assertEquals(DeviceType.RADAR, result.getValue().getDeviceType());
     }
 
-    /**
-     * 规则：★ 契约外的多余字段要报错，不能静默忽略。
-     *
-     * <p><b>为什么重要：</b>多余字段本身通常无害，但它是一个<b>信号</b>：
-     * 说明模型对任务的理解和契约不一致。模型输出 {@code "rotation": 90}，
-     * 意味着它认为可以设置朝向，而系统并不支持。</p>
-     *
-     * <p><b>违反会怎样：</b>静默忽略的话，用户说「放一台朝北的雷达」，
-     * 模型老老实实生成了 rotation，系统默默丢掉。用户看到设备朝向不对，
-     * 会以为是渲染 bug 或者需求没实现 —— 而真正的原因是
-     * 字段在几层之外被无声丢弃了。这种「静默不生效」比报错难查得多。</p>
-     */
+    /** 契约外的多余字段要报错而不是静默忽略：{@code "rotation": 90} 说明模型认为能设朝向而系统并不支持，
+     * 默默丢掉的话用户会以为是渲染 bug，真正原因却在几层之外，比报错难查得多。 */
     @Test
     public void shouldRejectUnknownFields() {
         // Arrange：模型多输出了一个系统不支持的字段。
@@ -308,25 +218,8 @@ public class OperationJsonParserTest {
         assertTrue(result.getErrorMessage().contains("rotation"));
     }
 
-    /**
-     * 规则（已知缺陷）：模型返回数组时，只有第一个元素会被处理，其余<b>被静默丢弃</b>。
-     *
-     * <p><b>这个测试记录的是缺陷，不是期望行为。</b>本课的
-     * {@code extractJsonObject} 从第一个 <code>{</code> 开始提取，
-     * 所以 <code>[{A},{B}]</code> 会被当成 {A} 成功解析，
-     * B 消失得无声无息。</p>
-     *
-     * <p><b>为什么危险：</b>用户说「删掉北侧那两台摄像头」，模型返回两个删除操作，
-     * 系统只执行了一个，还告诉用户「已完成」。这类静默丢弃比直接报错糟糕得多 ——
-     * 报错用户会重试，静默丢弃用户根本不知道出了问题。</p>
-     *
-     * <p><b>生产实现应该怎么做：</b>解析前先判断整段输出是数组还是对象。
-     * 是数组就明确拒绝并告知「本接口一次只接受一个操作」，
-     * 或者进入批量确认流程（涉及部分成功、事务边界和逐条确认，属于后续阶段）。</p>
-     *
-     * <p>把缺陷用测试固定下来的好处：以后有人修了这个行为，
-     * 这个测试会失败，提醒他同步更新文档和这条说明。</p>
-     */
+    /** 已知缺陷，记录的不是期望行为：数组输入只有第一个元素被处理，其余静默丢弃 ——
+     * 用户说「删掉那两台」，系统只执行一个还回「已完成」，报错用户会重试，静默丢弃他根本不知道。 */
     @Test
     public void shouldSilentlyKeepOnlyFirstElementOfArray_knownLimitation() {
         // Arrange：模型想做两个操作，返回了数组。
@@ -346,13 +239,7 @@ public class OperationJsonParserTest {
         assertEquals(1, result.getValue().getX().intValue());
     }
 
-    /**
-     * 规则：空输入和 null 要安全处理，不抛 NPE。
-     *
-     * <p><b>为什么重要：</b>模型返回空内容是真实存在的情况
-     * （第 1 课的 {@code isUsable()} 也在防这个）。
-     * 解析层作为防线，自己不能先崩。</p>
-     */
+    /** 空输入和 null 要安全处理而不抛 NPE：模型返回空内容是真实会发生的，解析层作为防线自己不能先崩。 */
     @Test
     public void shouldHandleEmptyAndNullInput() {
         // Act + Assert：三种空输入都返回失败而不是抛异常。
@@ -361,16 +248,8 @@ public class OperationJsonParserTest {
         assertFalse(parser.parse("   ").isValid());
     }
 
-    /**
-     * 规则：{@code targetId} 为空字符串等同于未提供。
-     *
-     * <p><b>为什么重要：</b>模型返回 {@code "targetId": ""} 是真实存在的情况。
-     * 它在 JSON 里是合法字符串，用 {@code != null} 判断会放行。</p>
-     *
-     * <p><b>违反会怎样：</b>空 id 进入下游查询，查不到设备，
-     * 报错却是「设备不存在」，让人以为是数据问题而非模型输出问题。
-     * 归一成 null 后，Schema 层能明确报出「缺少 targetId」。</p>
-     */
+    /** 空白 {@code targetId} 归一成 null：空字符串在 JSON 里合法，{@code != null} 会放行，
+     * 于是空 id 进下游查询后报的是「设备不存在」，让人以为是数据问题而不是模型输出问题。 */
     @Test
     public void shouldTreatBlankTargetIdAsMissing() {
         // Arrange：targetId 是空白。

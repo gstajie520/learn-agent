@@ -52,16 +52,7 @@ public class SceneBusinessValidatorTest {
         return new SceneBusinessValidator(scene());
     }
 
-    /**
-     * 规则：合法的新增操作通过校验，并生成预览。
-     *
-     * <p><b>为什么重要：</b>先确认正常路径能走通。校验器只会拒绝不该做的事，
-     * 不能把合法操作也拦住 —— 那样用户会觉得功能坏了。</p>
-     *
-     * <p>重点看返回值：拿到的是 {@link OperationPreview}，<b>不是</b>「已完成」。
-     * 场景数据一个字节都没改。这是本课最后一道安全边界：
-     * 即使前面所有校验都被绕过，真正的修改仍然需要用户点确认。</p>
-     */
+    /** 合法新增通过校验并返回 {@link OperationPreview}：拿到的是预览不是「已完成」，场景数据一个字节都没改，真正的修改仍然要等用户点确认。 */
     @Test
     public void shouldAcceptValidCreateAndReturnPreview() {
         // Arrange：在空位新增一台摄像头，场景当前 3 台、上限 5 台。
@@ -83,23 +74,7 @@ public class SceneBusinessValidatorTest {
         assertEquals(3, scene().getDeviceCount());
     }
 
-    /**
-     * 规则：★ 移动一个不存在的设备必须被拒绝。
-     *
-     * <p><b>为什么重要：</b>这是<b>模型幻觉最典型的形态</b>，也是本课的核心示例。
-     * 模型会自信地编出 {@code device-99} 这样的 id —— 格式完全正确、
-     * 命名风格也对，Schema 校验百分之百通过。但场景里根本没有这台设备。</p>
-     *
-     * <p>模型编 id 不是因为它「坏」，而是因为它<b>没有场景的真实状态</b>。
-     * 它只看到用户说「把那台雷达移过去」，就按训练时见过的命名习惯生成一个。</p>
-     *
-     * <p><b>违反会怎样：</b>操作发到数据层，要么外键报错（幸运情况，用户看到
-     * 一个看不懂的数据库异常），要么更新了 0 行然后返回「成功」——
-     * 用户以为设备移动了，实际什么都没发生。第二种更糟，因为它是静默的。</p>
-     *
-     * <p>注意错误信息里列出了当前场景的真实设备 id。这是给模型的<b>纠错线索</b>：
-     * 下一轮它就能从真实列表里选，而不是继续猜。</p>
-     */
+    /** 移动不存在的设备必须被拒绝：模型编出的 {@code device-99} 格式完全正确、Schema 百分百放行，放过去要么外键报错，要么更新 0 行还返回「成功」。 */
     @Test
     public void shouldRejectMoveOfNonExistentDevice() {
         // Arrange：device-99 不存在。这个 JSON 能通过 Schema 校验。
@@ -122,13 +97,7 @@ public class SceneBusinessValidatorTest {
                 "错误信息应列出真实设备 id 作为纠错线索，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：删除不存在的设备必须被拒绝。
-     *
-     * <p><b>为什么重要：</b>和上一条同源，但后果更严重 —— 删除是不可逆的。
-     * 如果下游把「目标不存在」错误处理成「条件不匹配所以不加过滤」，
-     * 就会变成全表删除。</p>
-     */
+    /** 删除不存在的设备必须被拒绝：删除不可逆，下游若把「目标不存在」当成「条件不匹配所以不加过滤」，就会变成全表删除。 */
     @Test
     public void shouldRejectDeleteOfNonExistentDevice() {
         // Arrange
@@ -143,24 +112,8 @@ public class SceneBusinessValidatorTest {
         assertTrue(result.getErrorMessage().contains("不存在"));
     }
 
-    /**
-     * 规则：★ 删除受保护设备必须被拒绝，即使设备确实存在。
-     *
-     * <p><b>为什么重要：</b>这是<b>危险操作拦截</b>，和「设备不存在」是不同性质的
-     * 防护。设备真实存在、id 完全正确、结构无可挑剔 —— 但业务规定这台设备
-     * 不允许通过自然语言指令删除。</p>
-     *
-     * <p>为什么需要这条：自然语言是模糊的。用户说「把不用的都删了」，
-     * 模型判断哪台「不用」靠的是猜测。关键设备（主雷达、消防联动）
-     * 一旦被误删，恢复成本远高于让用户多点一次确认。</p>
-     *
-     * <p><b>违反会怎样：</b>模型的一次误判造成不可逆的生产损失。
-     * 而且这类问题在测试环境很难发现 —— 测试场景里没有「关键设备」的概念。</p>
-     *
-     * <p>保护标记必须由<b>业务方</b>维护，模型无权跨过。这也是
-     * 「模型决策 / 程序控制」边界的具体落点：模型可以<b>建议</b>删除，
-     * 但能不能删由程序说了算。</p>
-     */
+    /** 删除受保护设备必须被拒绝，哪怕设备真实存在：用户说「把不用的都删了」时模型是在猜，
+     * 关键设备一旦误删，恢复成本远高于让用户多点一次确认。 */
     @Test
     public void shouldRejectDeleteOfProtectedDevice() {
         // Arrange：radar-1 存在，但被标记为受保护。
@@ -181,17 +134,8 @@ public class SceneBusinessValidatorTest {
                 "错误应说明设备受保护，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：★ 坐标超出当前场景边界必须被拒绝。
-     *
-     * <p><b>为什么重要：</b>这条最能说明两层校验的差别。
-     * Schema 层<b>无法</b>判断这个问题 —— 它只能检查「x 是不是整数」，
-     * 但「50 这个坐标在不在场景里」取决于场景多大。
-     * 20x20 的场景里 (50,50) 越界，100x100 的场景里完全合法。</p>
-     *
-     * <p><b>违反会怎样：</b>设备被放到用户看不见的位置。前端画布渲染不出来，
-     * 用户以为操作失败又点一次，于是产生多台幽灵设备。</p>
-     */
+    /** 越界坐标必须被拒绝：Schema 层只能查「x 是不是整数」，(50,50) 在 20x20 里越界、在 100x100 里合法，
+     * 放过去设备就落到画布外，用户以为没成功又点一次，于是多出几台幽灵设备。 */
     @Test
     public void shouldRejectCoordinatesOutsideSceneBounds() {
         // Arrange：场景是 20x20，(50, 50) 越界。结构上完全合法。
@@ -213,13 +157,7 @@ public class SceneBusinessValidatorTest {
                 "错误信息应包含真实边界值，供模型纠正");
     }
 
-    /**
-     * 规则：边界值 {@code (0,0)} 和 {@code (width-1, height-1)} 是合法的。
-     *
-     * <p><b>为什么重要：</b>边界条件最容易写错成 {@code <=} 或 {@code <}。
-     * 本课约定合法范围是 {@code [0, width)}，和数组下标一样。
-     * 如果把右边界也算合法，设备会被放到场景外一格。</p>
-     */
+    /** 合法范围是 {@code [0, width)}，边界值本身合法：{@code <=} 和 {@code <} 写反一个字符，设备就被放到场景外一格。 */
     @Test
     public void shouldAcceptCoordinatesExactlyOnBoundary() {
         // Act + Assert：左上角合法。
@@ -238,12 +176,7 @@ public class SceneBusinessValidatorTest {
                 .isValid(), "(20,19) 在 20x20 场景里应当越界");
     }
 
-    /**
-     * 规则：负坐标必须被拒绝。
-     *
-     * <p><b>为什么重要：</b>模型可能输出 -1 表示「往左一点」。
-     * 负数在数组下标语境下会直接抛异常，必须在校验层挡住。</p>
-     */
+    /** 负坐标必须被拒绝：模型会用 -1 表达「往左一点」，而负数走到数组下标那一步是直接抛异常。 */
     @Test
     public void shouldRejectNegativeCoordinates() {
         // Act
@@ -254,16 +187,8 @@ public class SceneBusinessValidatorTest {
         assertFalse(result.isValid());
     }
 
-    /**
-     * 规则：★ 场景已满时不允许继续新增。
-     *
-     * <p><b>为什么重要：</b>容量是<b>运行时状态</b>，Schema 层同样看不到。
-     * 而且这条防的是一类特定风险：模型在多轮对话里可能反复新增，
-     * 每一次单独看都合法，累积起来把场景撑爆。</p>
-     *
-     * <p><b>违反会怎样：</b>前端渲染卡死，或者存储成本失控。
-     * 更麻烦的是这种问题往往在演示时不出现，上线跑一段时间才爆。</p>
-     */
+    /** 场景已满时不允许继续新增：容量是运行时状态，模型在多轮对话里每次新增单独看都合法，累积起来把场景撑爆，
+     * 而这种问题演示时不出现，上线跑一段才爆。 */
     @Test
     public void shouldRejectCreateWhenSceneIsFull() {
         // Arrange：构造一个已达上限的场景（2 台上限，已有 2 台）。
@@ -284,12 +209,7 @@ public class SceneBusinessValidatorTest {
                 "错误应说明容量问题，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：移动到有效位置的存在设备通过校验，预览显示设备数量不变。
-     *
-     * <p><b>为什么重要：</b>移动不改变设备总数。预览里的「前后数量」
-     * 是用户判断影响范围的依据，算错会让人误以为设备被复制或丢失。</p>
-     */
+    /** 移动已存在设备到界内位置通过校验且数量不变：预览里的前后数量是用户判断影响范围的依据，算错会让人以为设备被复制或丢失。 */
     @Test
     public void shouldAcceptValidMoveAndKeepDeviceCount() {
         // Arrange：camera-1 确实存在，目标坐标在界内。
@@ -304,16 +224,8 @@ public class SceneBusinessValidatorTest {
         assertEquals(3, result.getValue().getDeviceCountAfter());
     }
 
-    /**
-     * 规则：合法的删除操作通过校验，但预览必须标记为破坏性。
-     *
-     * <p><b>为什么重要：</b>删除通过校验不等于可以静默执行。
-     * {@code isDestructive()} 是给前端的信号：这类操作要用更强的确认方式
-     * （二次弹窗、输入设备名确认），不能和新增用同一个「确定」按钮。</p>
-     *
-     * <p>把「危险程度」放进预览对象，而不是让前端根据操作类型自己判断，
-     * 是为了让规则只有一处定义 —— 加新操作类型时不会漏掉前端。</p>
-     */
+    /** 删除通过校验但预览要标记 {@code isDestructive()}：危险程度由预览对象给出而不是让前端按操作类型自己猜，
+     * 否则加新操作类型时前端那份判断一定会漏。 */
     @Test
     public void shouldMarkDeletePreviewAsDestructive() {
         // Arrange：camera-2 存在且未受保护。
@@ -331,22 +243,8 @@ public class SceneBusinessValidatorTest {
         assertEquals(2, result.getValue().getDeviceCountAfter());
     }
 
-    /**
-     * 规则：★ 场景里只要有受保护设备，{@code clear_all} 就整体拒绝，而不是「删掉其余的」。
-     *
-     * <p><b>为什么重要：</b>{@code clear_all} 是本课最危险的操作 ——
-     * 它不需要任何参数，所以<b>结构上永远合法</b>，Schema 层拦不住任何东西。
-     * 这里是唯一能拦住它的地方。</p>
-     *
-     * <p><b>为什么整体拒绝而不是部分执行：</b>用户说「清空」时，
-     * 他很可能根本没意识到场景里有关键设备。如果删掉其余、留下受保护的，
-     * 会产生一个用户完全没预期的中间状态 —— 他以为清空了，实际还剩几台；
-     * 而已经删掉的那些又找不回来。直接拒绝并要求逐台指定，
-     * 比留下一个半成品状态更安全。</p>
-     *
-     * <p><b>违反会怎样：</b>「部分成功」是分布式和批量操作里最难排查的一类故障。
-     * 用户看到操作「成功」，实际结果和预期不同，而且不可逆。</p>
-     */
+    /** 有受保护设备时 {@code clear_all} 整体拒绝而不是删掉其余的：{@code clear_all} 不带参数所以结构上永远合法，
+     * 这里是唯一能拦住它的地方，而部分执行会留下用户完全没预期又找不回来的中间状态。 */
     @Test
     public void shouldRejectClearAllWhenSceneHasProtectedDevices() {
         // Arrange：默认场景里 radar-1 是受保护设备。
@@ -364,18 +262,8 @@ public class SceneBusinessValidatorTest {
                 "错误应给出可行的替代做法，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：★ 没有受保护设备时清空可以通过，但预览必须标记破坏性并显示清空后为 0。
-     *
-     * <p><b>为什么重要：</b>这是「预览而非执行」这个设计的最强论据。
-     * 用户说「把这些清理一下」，模型理解成清空整个场景 ——
-     * 这个理解不算离谱，但如果直接执行，用户的全部工作瞬间消失。
-     * 有了预览，用户看到「将删除全部 2 台设备」就会立刻发现偏差。</p>
-     *
-     * <p>注意这里校验是<b>通过</b>的：这个操作确实合法可执行。
-     * 挡住它不是校验的职责，而是用户确认这一步的职责。
-     * 校验层的任务是把后果说清楚，让用户有判断依据。</p>
-     */
+    /** 无受保护设备时清空通过校验，但预览要标记破坏性并显示清空后为 0：模型把「清理一下」理解成清空整个场景并不离谱，
+     * 挡住它是用户确认那一步的职责，校验层只负责把后果说清楚。 */
     @Test
     public void shouldPreviewClearAllAsDestructiveWhenNothingIsProtected() {
         // Arrange：一个不含受保护设备的场景。
@@ -404,16 +292,7 @@ public class SceneBusinessValidatorTest {
                 "破坏性操作的确认文案必须提示不可逆");
     }
 
-    /**
-     * 规则：同一个操作在不同场景下结论可能不同。
-     *
-     * <p><b>为什么重要：</b>这条集中说明业务校验的本质 ——
-     * 它的结论<b>依赖运行时状态</b>，不是操作本身的固有属性。</p>
-     *
-     * <p>同一个「移动 camera-1」操作：在有 camera-1 的场景里合法，
-     * 在空场景里非法。这就是为什么这一层不能像 Schema 层那样写成纯函数，
-     * 也是为什么它的测试必须准备场景数据。</p>
-     */
+    /** 同一个操作在不同场景下结论可能相反：合法性依赖运行时状态而不是操作的固有属性，所以这一层不能像 Schema 层那样写成纯函数。 */
     @Test
     public void shouldGiveDifferentVerdictForSameOperationInDifferentScenes() {
         // Arrange：同一个操作对象。
@@ -432,12 +311,7 @@ public class SceneBusinessValidatorTest {
         assertFalse(inEmpty.isValid(), "空场景里同一操作应当非法");
     }
 
-    /**
-     * 规则：多个业务问题一次性全部报出。
-     *
-     * <p><b>为什么重要：</b>和 Schema 层同理 —— 把全部问题一次发回模型，
-     * 它一轮就能改对。逐条返回要多花好几轮 token 和时间。</p>
-     */
+    /** 多个业务问题一次性全部报出：全部问题一次发回模型它一轮就能改对，逐条返回要多花好几轮 token 和时间。 */
     @Test
     public void shouldReportMultipleBusinessErrorsAtOnce() {
         // Arrange：设备不存在 + 坐标越界，两个问题同时存在。
@@ -452,12 +326,7 @@ public class SceneBusinessValidatorTest {
                 "应报出至少两个问题，实际：" + result.getErrors());
     }
 
-    /**
-     * 规则：{@code null} 操作被安全拒绝，不抛 NPE。
-     *
-     * <p><b>为什么重要：</b>校验器是防线。防线自己崩掉，
-     * 上游任何一处漏检都会变成 500 错误。</p>
-     */
+    /** {@code null} 操作被安全拒绝而不抛 NPE：校验器是防线，防线自己崩掉，上游任何一处漏检都会变成 500。 */
     @Test
     public void shouldRejectNullOperationSafely() {
         // Act + Assert：返回错误而不是抛异常。

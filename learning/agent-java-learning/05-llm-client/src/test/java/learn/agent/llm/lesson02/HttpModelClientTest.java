@@ -51,18 +51,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class HttpModelClientTest {
 
     /**
-     * 规则：连接超时和读取超时都必须是正数，{@code 0} 要在构造时就被拒绝。
-     *
-     * <p><b>为什么重要：</b>{@code 0} 在 {@link java.net.HttpURLConnection} 里不是
-     * 「立即超时」，而是「永不超时」——正好是最危险的那个含义，而且写 {@code 0}
-     * 的人通常以为自己在设置一个很严格的限制。模型调用本身就慢（几秒到几十秒），
-     * 所以超时值会调得比普通 HTTP 请求大得多，一路调到 {@code 0} 是很自然的手滑。</p>
-     *
-     * <p><b>违反会怎样：</b>线程泄漏。服务端不回包、连接被中间设备静默丢弃时，
-     * 调用线程会永久阻塞在 {@code read()} 上，既不抛异常也不返回。
-     * 固定大小的线程池被这样耗尽后，整个服务对所有请求都不再响应，
-     * 而模型服务其实只是慢，并没有挂。这类故障在监控上表现为
-     * 「线程数只增不减、无任何错误日志」，需要 dump 线程栈才能定位。</p>
+     * 两个超时都必须为正数、{@code 0} 在构造时就拒绝：{@code 0} 在 {@link java.net.HttpURLConnection}
+     * 里是「永不超时」而非写的人以为的「立即超时」，服务端不回包时调用线程永久阻塞在 {@code read()} 上，
+     * 线程池被耗尽后整个服务无响应，监控上只看到线程数只增不减、没有一条错误日志。
      */
     @Test
     public void shouldRejectZeroTimeout() {
@@ -84,17 +75,9 @@ public class HttpModelClientTest {
     }
 
     /**
-     * 规则：{@code settings} 为 {@code null} 时构造函数直接抛异常，不接受半成品对象。
-     *
-     * <p><b>为什么重要：</b>这是「快速失败」的基本形态。构造时校验，
-     * 问题出现在创建对象那一行；不校验，问题会推迟到第一次 {@code chat()} 调用，
-     * 变成一个 {@link NullPointerException}，堆栈顶端指向客户端内部，
-     * 完全看不出真正的原因是依赖注入配错了。</p>
-     *
-     * <p><b>违反会怎样：</b>故障点和根因在时间与空间上都被拉开。
-     * 服务启动看起来一切正常，直到第一个真实用户请求进来才崩，
-     * 而排查的人拿到的是一个内部 NPE，得反向推导才能回到「谁传了 null」。
-     * 一个能构造出来的对象，就应该是能正常工作的对象。</p>
+     * {@code settings} 为 {@code null} 时构造就抛，不接受半成品对象：不校验的话故障推迟到第一次
+     * {@code chat()}，表现为堆栈指向客户端内部的 {@link NullPointerException} —— 服务启动一切正常，
+     * 直到第一个真实用户请求才崩，排查的人得反向推导才回到「谁传了 null」。
      */
     @Test
     public void shouldRejectNullSettings() {
@@ -106,25 +89,9 @@ public class HttpModelClientTest {
     }
 
     /**
-     * 规则：网络层失败（连接被拒、DNS 解析失败、TLS 握手失败）要映射成
-     * <b>可重试</b>的 {@link ModelException}，而不是原样抛出
-     * {@link java.io.IOException}。
-     *
-     * <p><b>为什么重要：</b>两件事在这一条里同时完成。一是<b>翻译</b>：
-     * 上层的 {@link RetryingModelClient} 和第 1 课的 {@link SceneSummaryService}
-     * 只认识 {@code ModelException} 和它的 {@code isRetryable()}，
-     * 让 {@code IOException} 漏上去，等于要求每个调用方都懂 HTTP。
-     * 二是<b>分类</b>：连接被拒、网络抖动、服务滚动重启、DNS 短暂失效，
-     * 都是「现在不行，等一下可能就行」的暂时性故障，重试是有意义的。</p>
-     *
-     * <p><b>违反会怎样：</b>如果误判成不可重试，一次网络抖动就变成一个用户可见的错误，
-     * 而这个错误本来重试一次就没了——上游滚动发布期间会集中爆发。
-     * 如果干脆不翻译，异常类型会直接击穿抽象层：业务代码要么捕获
-     * {@code IOException}（于是被绑死在 HTTP 实现上，换成 gRPC 就得重写），
-     * 要么根本没捕获，让一个网络异常冒到最外层。</p>
-     *
-     * <p>测试用 {@code 127.0.0.1:1} 触发：这个端口不会有服务监听，
-     * 连接会被立刻拒绝，不依赖外网，也不用等超时。</p>
+     * 网络层失败要翻译成可重试的 {@link ModelException} 而不是漏出 {@link java.io.IOException}：
+     * 误判成不可重试，一次上游滚动发布期间的网络抖动就变成用户可见的错误；不翻译则异常类型击穿抽象层，
+     * 业务代码被绑死在 HTTP 实现上，换 gRPC 就得重写。
      */
     @Test
     public void shouldClassifyUnreachableHostAsRetryableServerError() {
@@ -148,37 +115,9 @@ public class HttpModelClientTest {
     }
 
     /**
-     * 规则：真实调用能拿到内容非空的响应，且响应里必须带 Token 用量和请求 ID。
-     *
-     * <p><b>需要真实密钥。</b>三个配置项没配齐时（{@code .env} 和环境变量都没有），
-     * 这个测试会被 {@link Assumptions#assumeTrue} <b>跳过</b>。请务必分清：
-     * <b>跳过不等于通过</b>。它跳过时，真实网络路径完全没有被验证过——
-     * TLS 握手、请求体序列化是否被供应商接受、响应 JSON 的实际字段结构、
-     * 连接复用行为，这些都还是未知的。前面那些离线测试再绿，也证明不了
-     * 这条链路能通。在 {@code learning/agent-java-learning/.env} 里配好
-     * {@code OPENAI_BASE_URL} / {@code OPENAI_API_KEY} / {@code OPENAI_MODEL}
-     * 后重跑，才是真的验证过。</p>
-     *
-     * <p><b>为什么重要：</b>{@link ChatJsonCodec} 的解析逻辑是照着文档写的，
-     * 而各家供应商在 OpenAI 兼容协议上都有细微差异（{@code usage} 可能缺字段、
-     * 请求 ID 放在响应体还是 HTTP 头、{@code finish_reason} 的取值拼写）。
-     * 只有真发一次请求才能发现这些差异。断言 Token 用量大于 0 还有另一层意思：
-     * 用量是成本可观测的唯一数据来源，解析丢了它，线上就没法归因账单。</p>
-     *
-     * <p><b>为什么不断言 {@code isUsable()}：</b>那个方法要求
-     * {@code finishReason == STOP}，也就是要求模型这次<b>恰好没说超</b>输出上限。
-     * 而说多说少由模型决定，不由被测代码决定 —— 这条断言实测确实挂过一次
-     * （{@code finishReason=LENGTH}）。本测试要证的是「传输和解析这条链路通」，
-     * 不是「模型这次话短」。{@code STOP} 和 {@code LENGTH} 都同样证明了
-     * 响应被正确解析，所以两者都接受。{@code isUsable()} 是<b>生产侧的质量闸门</b>
-     * （截断的内容确实不能用，见 {@code SceneSummaryService}），
-     * 不是「调用成功了没」的判据，两件事不能混。</p>
-     *
-     * <p><b>违反会怎样：</b>所有离线测试全绿，一上线第一个请求就失败，
-     * 因为解析代码和供应商的真实返回格式对不上。这类问题只会在真实环境暴露，
-     * 而那时暴露的成本远高于现在。反过来，如果把「模型话短」写进断言，
-     * 测试就会时绿时红；而随机失败的测试最终会被当成噪音忽略，
-     * 那它就再也拦不住真正的回归了 —— 比一开始没有这个测试更糟。</p>
+     * 真实调用要拿到非空内容并带上 Token 用量和请求 ID（三项配置缺任一即跳过，跳过不等于通过）：
+     * 各家供应商在 OpenAI 兼容协议上的细微差异只有真发一次请求才暴露，否则离线测试全绿而上线第一个请求就失败。
+     * 接受 {@code STOP} 和 {@code LENGTH} 而不断言 {@code isUsable()}，是因为模型话长话短不由被测代码决定，钉死它测试就会时绿时红。
      */
     @Test
     public void shouldCallRealModelWhenConfigured() {
@@ -206,26 +145,10 @@ public class HttpModelClientTest {
     }
 
     /**
-     * 规则：{@link SceneSummaryService} 一行代码都不用改，就能从 {@code FakeModelClient}
-     * 切换到真实 HTTP 客户端。
-     *
-     * <p><b>需要真实密钥，未配置时跳过</b>（同 {@code shouldCallRealModelWhenConfigured}，
-     * 跳过意味着这条集成路径未被验证）。</p>
-     *
-     * <p><b>为什么重要：</b>这是整个课程里最值得停下来看的一个测试——它是第 1 课那个
-     * 设计决定的<b>回报兑现</b>。第 1 课让业务只依赖
-     * {@link learn.agent.llm.lesson01.ModelClient ModelClient} 接口，
-     * 当时看起来像是多写了一层没必要的抽象。现在换实现只需改一行装配代码：
-     * {@code SceneSummaryService} 的源文件保持原样，连重新编译的理由都没有。
-     * 顺便注意装配方式：{@code HttpModelClient} 被 {@link RetryingModelClient} 包了一层，
-     * 再传给业务。重试是<b>叠加</b>上去的，不是写进 HTTP 客户端里的——
-     * 两个类各管一件事，都实现同一个接口，所以能自由组合。</p>
-     *
-     * <p><b>违反会怎样：</b>如果业务代码直接依赖具体实现（自己 new 一个 HTTP 客户端、
-     * 或者方法签名里出现 {@code HttpModelClient}），那么换供应商、加重试、
-     * 在测试里替换成假实现，每一件都要改业务代码。更要紧的是：
-     * 业务逻辑将再也无法脱离网络做单元测试，第 1 课那些「前两次限流、第三次成功」
-     * 之类的场景根本构造不出来。抽象层的价值不在写的时候，在改的时候。</p>
+     * 第 1 课的 {@link SceneSummaryService} 一行不改就能从 Fake 换成真实 HTTP 客户端（未配置密钥时跳过）：
+     * 这是第 1 课那层看似多余的接口抽象在兑现回报 —— 换实现只动一行装配代码，重试还是靠
+     * {@link RetryingModelClient} 叠加上去而非写进 HTTP 客户端。业务若直接依赖具体实现，
+     * 换供应商、加重试、测试里替假实现都得改业务代码，而且再也无法脱离网络做单元测试。
      */
     @Test
     public void shouldWorkWithLesson01ServiceUnchanged() {
@@ -249,26 +172,10 @@ public class HttpModelClientTest {
     }
 
     /**
-     * 规则：密钥错误（HTTP 401/403）必须归类为 {@code AUTHENTICATION} 且
-     * <b>不可重试</b>，第一次失败就立刻抛出。
-     *
-     * <p><b>需要真实的 {@code OPENAI_BASE_URL} 和 {@code OPENAI_MODEL}</b>
-     * （密钥由测试故意填一个无效值），未配置时跳过。跳过时，
-     * 「本客户端能否正确识别供应商返回的鉴权错误」这一点是未经验证的。</p>
-     *
-     * <p><b>为什么重要：</b>这里验证的是<b>状态码到错误类型的映射</b>在真实供应商上成立。
-     * 第 1 课已经用 Fake 验证过「不可重试错误不该重试」的逻辑，
-     * 但那前提是错误被正确分类。分类发生在 HTTP 客户端里：
-     * 只有它看得见状态码，一旦它把 401 归成 {@code SERVER_ERROR}，
-     * 上层再正确也救不回来。密钥错了重试一万次结果一样，
-     * 这类失败需要人改配置，不是等待能恢复的。</p>
-     *
-     * <p><b>违反会怎样：</b>把 401 误判成可重试，那么密钥配错时——这恰好是最常见的
-     * 首次部署故障——每个请求都会跑完整轮指数退避（本例是 3 次，退避到 8 秒），
-     * 用户要等十几秒才看到一个从第一毫秒就已经确定的失败。
-     * 日志里堆满三倍的重复错误，反而掩盖了真正的原因。
-     * 更糟的情况是密钥过期时线上突然出现大面积超时而不是清晰的鉴权报错，
-     * 排查方向会被彻底带偏。</p>
+     * 401/403 要归成不可重试的 {@code AUTHENTICATION} 并立刻抛出（需真实 {@code OPENAI_BASE_URL} 与
+     * {@code OPENAI_MODEL}，密钥故意填无效值，未配置时跳过）：状态码只有 HTTP 客户端看得见，它把 401 归成
+     * {@code SERVER_ERROR}，上层重试逻辑再对也救不回来 —— 首次部署配错密钥这种最常见的故障会跑完整轮退避，
+     * 用户等十几秒才看到一个第一毫秒就已确定的失败，日志里三倍的重复错误还盖住了真正的原因。
      */
     @Test
     public void shouldFailFastWithInvalidApiKey() {

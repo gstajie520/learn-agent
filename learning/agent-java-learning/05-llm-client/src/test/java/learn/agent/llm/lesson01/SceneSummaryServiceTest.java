@@ -27,17 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class SceneSummaryServiceTest {
 
-    /**
-     * 规则：系统规则和用户输入必须是两条独立消息，不能拼成一段文本。
-     *
-     * <p><b>为什么重要：</b>{@code SYSTEM} 是开发者设定的规则，模型会优先遵守。
-     * 一旦把用户输入拼进系统消息，用户就能写「忽略上面的指令」来改写业务约束。</p>
-     *
-     * <p><b>违反会怎样：</b>提示注入。用户输入直接获得了系统级权限，
-     * 业务设定的「只输出一句总结、不要提问」这类约束会被绕过。</p>
-     *
-     * <p>本测试顺便验证温度和输出上限确实按业务需要设置，没有用默认值。</p>
-     */
+    /** 系统规则和用户输入分成两条消息：拼成一段文本，用户写一句「忽略上面的指令」就拿到了系统级权限。 */
     @Test
     public void shouldSendSystemRuleAndUserInputAsSeparateMessages() {
         // Arrange：预设一次正常返回，重点不在返回值，而在"发出去的请求长什么样"。
@@ -68,20 +58,7 @@ public class SceneSummaryServiceTest {
         assertEquals(200, sent.getMaxOutputTokens());
     }
 
-    /**
-     * 规则：{@code finishReason=LENGTH}（输出被截断）必须拒绝，不能把残句当结果返回。
-     *
-     * <p><b>为什么重要：</b>这是本课最容易被忽略、也最容易在生产出事的一条。
-     * 被截断的 {@code content} 看起来是正常中文，没有任何异常标志，
-     * 只有 {@code finishReason} 能告诉你它是残缺的。</p>
-     *
-     * <p><b>违反会怎样：</b>残句流进下游。如果下游要解析 JSON，会在
-     * 「模型明明返回了内容」的情况下解析失败；如果直接写库，就产生了脏数据，
-     * 而且事后无法区分是模型答错还是被截断。</p>
-     *
-     * <p>另外验证一个反直觉的点：这次调用业务失败了，但 Token 照样计费，
-     * 所以成本统计不能只在成功分支里累加。</p>
-     */
+    /** {@code finishReason=LENGTH} 必须拒绝：残句看起来是正常中文，只有 {@code finishReason} 能识别它，放过去就是脏数据入库，事后分不清是模型答错还是被截断。 */
     @Test
     public void shouldRejectTruncatedOutput() {
         // Arrange：模型话没说完就撞到 maxOutputTokens 上限，content 是一句残句。
@@ -106,16 +83,7 @@ public class SceneSummaryServiceTest {
         assertEquals(320, service.getTotalTokens());
     }
 
-    /**
-     * 规则：{@code finishReason=CONTENT_FILTER}（被内容安全策略拦截）必须拒绝，且不重试。
-     *
-     * <p><b>为什么重要：</b>安全拦截是<b>确定性</b>结果，不是偶发故障。
-     * 同样的输入送过去，还会被同样拦截。</p>
-     *
-     * <p><b>违反会怎样：</b>如果误判成「服务暂时不可用」而去重试，
-     * 每次重试都要付输入 Token 的钱，最后还是失败。用户等得更久、账单更高、
-     * 日志里堆一片同样的错误。</p>
-     */
+    /** {@code finishReason=CONTENT_FILTER} 必须拒绝且不重试：安全拦截是确定性结果，误判成「服务暂时不可用」去重试，每次都要付输入 Token 的钱，最后照样失败。 */
     @Test
     public void shouldRejectContentFilteredOutput() {
         // Arrange：输出被内容安全策略拦截，此时 content 不可用。
@@ -135,21 +103,7 @@ public class SceneSummaryServiceTest {
         assertEquals(1, fake.getCallCount());
     }
 
-    /**
-     * 规则：限流（HTTP 429）属于暂时性故障，应当自动重试；业务方只调用一次。
-     *
-     * <p><b>为什么重要：</b>限流的含义是「你现在太快了，等一下再来」，
-     * 不是「这个请求错了」。等一会儿重试通常就能成功。而且重试要发生在
-     * <b>服务内部</b>，业务代码不该关心这件事。</p>
-     *
-     * <p><b>违反会怎样：</b>把 429 当致命错误直接抛给用户，
-     * 高峰期会出现大量本可自动恢复的失败；反过来，如果让每个调用方
-     * 自己写重试，重试逻辑会散落在几十处，改退避策略要改几十个地方。</p>
-     *
-     * <p>这个场景在真实环境很难复现（要正好撞上限流），但用
-     * {@link FakeModelClient} 可以精确构造「前两次限流、第三次成功」。
-     * 这就是引入 {@link ModelClient} 接口最直接的收益。</p>
-     */
+    /** 限流要在服务内部自动重试，业务方只调用一次：把 429 当致命错误抛给用户，高峰期会出现大量本可自动恢复的失败；让每个调用方自己写重试，改退避策略就要改几十个地方。 */
     @Test
     public void shouldRetryRateLimitAndSucceed() {
         // Arrange：前两次限流（HTTP 429），第三次正常返回。
@@ -170,19 +124,7 @@ public class SceneSummaryServiceTest {
         assertEquals(102, service.getTotalTokens());
     }
 
-    /**
-     * 规则：鉴权失败不可重试，第一次失败就立即抛出，不消耗剩余重试次数。
-     *
-     * <p><b>为什么重要：</b>密钥错了，重试一万次结果完全一样。
-     * 这类失败需要人工改配置，不是等待就能恢复的。</p>
-     *
-     * <p><b>违反会怎样：</b>如果对所有异常一律重试，密钥配错时每个请求都会
-     * 变成 3 次无用请求，用户要等 3 倍时间才看到错误，日志里也会出现
-     * 3 倍噪音，掩盖真正的问题。</p>
-     *
-     * <p>注意断言的是 {@code getCallCount() == 1}：这里验证的不是「失败了」，
-     * 而是「失败得足够快」。区分可重试和不可重试的价值就体现在这一个数字上。</p>
-     */
+    /** 鉴权失败第一次就抛出，不消耗剩余重试次数：断言 {@code getCallCount() == 1} 验的不是「失败了」而是「失败得足够快」，一律重试的话密钥配错会让用户等 3 倍时间、日志出现 3 倍噪音。 */
     @Test
     public void shouldNotRetryAuthenticationError() {
         // Arrange：密钥无效。即使允许重试 3 次，也不该浪费在这上面。
@@ -205,19 +147,7 @@ public class SceneSummaryServiceTest {
         assertEquals(1, fake.getCallCount());
     }
 
-    /**
-     * 规则：重试次数用尽后必须失败，并且保留原始错误分类和尝试次数。
-     *
-     * <p><b>为什么重要：</b>重试不能无限进行。每次重试都在花钱、占线程、
-     * 让用户多等一会儿。到了上限就必须放弃，把失败如实报出去。
-     * 同时异常消息里要带上「尝试了几次」和原始错误，
-     * 否则排查时只看到一句「调用失败」，不知道是试了 1 次还是 10 次。</p>
-     *
-     * <p><b>违反会怎样：</b>两种极端。一种是无限重试，一个持续 5xx 的上游
-     * 会把线程池占满，故障从模型服务扩散成整个应用不可用；
-     * 另一种是丢掉原始错误分类，监控上只看到「未知失败」，
-     * 无法区分是限流、超时还是服务端故障。</p>
-     */
+    /** 重试用尽要失败并保留原始分类和尝试次数：无限重试会让一个持续 5xx 的上游占满线程池，把故障从模型服务扩散成整个应用不可用；丢掉分类则只剩一句「未知失败」。 */
     @Test
     public void shouldFailAfterExhaustingRetries() {
         // Arrange：服务端一直 5xx，重试次数设为 2。
@@ -241,18 +171,7 @@ public class SceneSummaryServiceTest {
         assertTrue(exception.getMessage().contains("上游 502"));
     }
 
-    /**
-     * 规则：Token 要跨多次调用累加，且输入和输出分开统计。
-     *
-     * <p><b>为什么重要：</b>输入和输出单价不同，输出通常更贵，
-     * 只记总数无法准确核算成本。更关键的是输入 Token 会随对话历史
-     * <b>线性增长</b>：第 10 轮对话要把前 9 轮全部重发一次，
-     * 所以长会话的单次成本不是恒定的。这正是后面阶段要做上下文压缩的动机。</p>
-     *
-     * <p><b>违反会怎样：</b>账单失控且无法归因。月底看到费用超支，
-     * 但不知道是调用次数涨了、还是单次对话变长了、还是重试放大了用量。
-     * 没有分项数据就无法判断该优化哪一处。</p>
-     */
+    /** Token 跨多次调用累加且输入输出分开统计：输入会随对话历史线性增长（第 10 轮要把前 9 轮全部重发），只记总数的话月底费用超支也说不清是调用变多了、对话变长了还是重试放大了用量。 */
     @Test
     public void shouldAccumulateTokensAcrossCalls() {
         // Arrange：两次成功调用，Token 消耗不同。
@@ -271,20 +190,7 @@ public class SceneSummaryServiceTest {
         assertEquals(165, service.getTotalTokens());
     }
 
-    /**
-     * 规则：空白输入在本地就要挡住，一次请求都不发。
-     *
-     * <p><b>为什么重要：</b>能在本地判断的错误就不要花一次网络往返去问模型。
-     * 空输入发过去，模型不会报错，它会「自由发挥」编一段总结出来，
-     * 那比直接失败更糟：你拿到了一个看起来正常、实际毫无根据的结果。</p>
-     *
-     * <p><b>违反会怎样：</b>既浪费钱又产生假数据。而且这类调用在监控上
-     * 显示为「成功」，问题会被长期掩盖。</p>
-     *
-     * <p>注意这里抛的是 {@link IllegalArgumentException} 而不是
-     * {@link ModelException}：这是<b>调用方的编程错误</b>，
-     * 不是模型服务的问题，两者不应该混在同一个异常体系里。</p>
-     */
+    /** 空白输入在本地挡住，一次请求都不发：空输入送过去模型不会报错，它会自由发挥编一段总结，你拿到的是看起来正常、实际毫无根据的假数据，而监控上这次调用显示为成功。 */
     @Test
     public void shouldRejectBlankSceneDescriptionWithoutCallingModel() {
         // Arrange：空白输入。
@@ -301,17 +207,7 @@ public class SceneSummaryServiceTest {
         assertEquals(0, fake.getCallCount());
     }
 
-    /**
-     * 规则：依赖和配置在构造时校验，不允许创建出「半残」的服务对象。
-     *
-     * <p><b>为什么重要：</b>构造方法是最后一道能保证对象一定可用的关口。
-     * 在这里挡住 null 依赖和非法配置，后面所有业务方法就不必再写防御性检查。
-     * {@code maxAttempts=0} 意味着一次都不尝试，属于明显的配置错误。</p>
-     *
-     * <p><b>违反会怎样：</b>报错点远离真正的错误点。如果构造时不检查，
-     * 空指针会在几小时后第一次真正调用模型时才出现，
-     * 栈顶指向业务方法，而真正的问题是启动时依赖注入配错了。</p>
-     */
+    /** 依赖和配置在构造时校验：不检查的话空指针要等几小时后第一次真正调用模型才出现，栈顶指向业务方法，而真正的问题是启动时依赖注入配错了。 */
     @Test
     public void shouldRejectInvalidConstructorArguments() {
         // Arrange + Act + Assert：依赖和配置在构造时校验，避免服务半初始化就被使用。

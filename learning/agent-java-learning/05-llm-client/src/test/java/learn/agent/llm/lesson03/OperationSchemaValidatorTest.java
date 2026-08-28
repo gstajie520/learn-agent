@@ -25,12 +25,7 @@ public class OperationSchemaValidatorTest {
 
     private final OperationSchemaValidator validator = new OperationSchemaValidator();
 
-    /**
-     * 规则：完整合法的 CREATE 操作通过第一层校验。
-     *
-     * <p><b>为什么重要：</b>先确认正常路径能过，否则后面的拒绝测试
-     * 可能只是因为校验器把一切都拒了。</p>
-     */
+    /** 完整合法的 CREATE 能通过第一层：正常路径不先跑通，后面那些拒绝测试可能只是因为校验器把一切都拒了。 */
     @Test
     public void shouldAcceptCompleteCreateOperation() {
         // Arrange：新增雷达，带坐标和理由。
@@ -45,14 +40,8 @@ public class OperationSchemaValidatorTest {
     }
 
     /**
-     * 规则：CREATE 必须带 deviceType，否则拒绝。
-     *
-     * <p><b>为什么重要：</b>「新增一个设备」但没说是什么设备，是无法执行的指令。
-     * 这类字段搭配约束无法用 Java 类型系统表达（deviceType 字段本身允许为 null，
-     * 因为 DELETE 操作不需要它），只能靠显式校验。</p>
-     *
-     * <p><b>违反会怎样：</b>下游拿到一个 deviceType 为 null 的操作，
-     * 要么 NPE，要么被迫猜一个默认类型 —— 猜错就是往用户场景里放错设备。</p>
+     * CREATE 缺 deviceType 必须拒绝：deviceType 字段本身允许为 null（DELETE 不需要它），
+     * 类型系统管不了这种搭配约束，放过去下游要么 NPE，要么猜一个默认类型往场景里放错设备。
      */
     @Test
     public void shouldRejectCreateWithoutDeviceType() {
@@ -70,15 +59,7 @@ public class OperationSchemaValidatorTest {
                 "错误信息应指出 deviceType，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：CREATE 必须带坐标。
-     *
-     * <p><b>为什么重要：</b>不知道放在哪里的「新增」无法执行。
-     * 模型有时只说「加一台摄像头」而不给坐标。</p>
-     *
-     * <p><b>违反会怎样：</b>如果给个默认坐标（比如 0,0），
-     * 设备会全部堆在角落，用户以为系统坏了。宁可拒绝并要求模型补全。</p>
-     */
+    /** CREATE 缺坐标必须拒绝：补个默认的 (0,0) 会让设备全堆在角落，用户以为系统坏了，宁可要求模型补全。 */
     @Test
     public void shouldRejectCreateWithoutCoordinates() {
         // Arrange：有类型但没坐标。
@@ -94,13 +75,7 @@ public class OperationSchemaValidatorTest {
         assertTrue(result.getErrorMessage().contains("y"));
     }
 
-    /**
-     * 规则：MOVE 必须带 targetId，否则不知道移动谁。
-     *
-     * <p><b>为什么重要：</b>MOVE 和 CREATE 的必填字段不同 ——
-     * CREATE 需要 deviceType，MOVE 需要 targetId。
-     * 这种「按类型不同而必填项不同」的约束是 Schema 层的典型职责。</p>
-     */
+    /** MOVE 缺 targetId 必须拒绝：必填项随操作类型而变（CREATE 要 deviceType，MOVE 要 targetId），这种按类型分支的约束正是 Schema 层的职责。 */
     @Test
     public void shouldRejectMoveWithoutTargetId() {
         // Arrange：想移动，但没说移动哪一个。
@@ -116,12 +91,7 @@ public class OperationSchemaValidatorTest {
                 "错误应指出缺少 targetId，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：DELETE 必须带 targetId。
-     *
-     * <p><b>为什么重要：</b>删除是不可逆操作。目标不明确时必须拒绝，
-     * 绝不能有任何「猜一个」的余地。</p>
-     */
+    /** DELETE 缺 targetId 必须拒绝：删除不可逆，目标不明确时不能留任何「猜一个」的余地。 */
     @Test
     public void shouldRejectDeleteWithoutTargetId() {
         // Arrange
@@ -137,14 +107,8 @@ public class OperationSchemaValidatorTest {
     }
 
     /**
-     * 规则：坐标为负数时拒绝。
-     *
-     * <p><b>为什么重要：</b>这一层用的是<b>写死的常量</b>范围（不能为负），
-     * 而不是当前场景的实际宽高。区别在于：这条规则任何场景下都成立，
-     * 不需要查询状态就能判断。</p>
-     *
-     * <p>「坐标 5000 是否越界」则要看场景多大，那是第二层的事。
-     * 这两层的分工，是本课要理解的核心之一。</p>
+     * 负坐标必须拒绝：这一层比的是写死的常量而不是场景实际宽高，因为「不能为负」任何场景下都成立，
+     * 而「坐标 5000 是否越界」得先知道场景多大，那是第二层的事。
      */
     @Test
     public void shouldRejectNegativeCoordinates() {
@@ -160,13 +124,7 @@ public class OperationSchemaValidatorTest {
                 "错误应指出 x 越界，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：坐标超过绝对上限时拒绝。
-     *
-     * <p><b>为什么重要：</b>模型偶尔会输出 999999 这样的数字。
-     * 即使不知道当前场景多大，这个值也明显荒谬。
-     * 在这一层挡掉，可以避免把明显错误的数据带到需要查询状态的下一层。</p>
-     */
+    /** 荒谬的大坐标必须拒绝：999999 不用查场景也知道不合理，在这里挡掉就不用把明显错误的数据带进需要查询状态的下一层。 */
     @Test
     public void shouldRejectAbsurdlyLargeCoordinates() {
         // Arrange：远超任何合理场景尺寸。
@@ -179,17 +137,7 @@ public class OperationSchemaValidatorTest {
         assertFalse(result.isValid());
     }
 
-    /**
-     * 规则：CLEAR_ALL 不需要 deviceType 和 targetId，本身结构合法。
-     *
-     * <p><b>为什么重要：</b>这个测试证明 Schema 层<b>不越权</b>。
-     * 「清空全部设备」在结构上是完整的指令，没有缺任何必填字段，
-     * 所以这一层必须放行。</p>
-     *
-     * <p>它危险不危险，是第二层和确认环节的判断 ——
-     * 见 {@code SceneBusinessValidatorTest} 里对 CLEAR_ALL 的处理。
-     * 每一层只做自己该做的判断，是分层校验能讲清楚的前提。</p>
-     */
+    /** CLEAR_ALL 不缺任何必填字段，第一层必须放行：它危险不危险由第二层和确认环节判断，Schema 层越权替别人做决定，分层就没意义了。 */
     @Test
     public void shouldAcceptClearAllAsStructurallyValid() {
         // Arrange：清空操作。
@@ -203,17 +151,7 @@ public class OperationSchemaValidatorTest {
         assertTrue(result.getValue().isDestructive(), "但它必须被标记为破坏性操作");
     }
 
-    /**
-     * 规则：reason 缺失时拒绝。
-     *
-     * <p><b>为什么重要：</b>reason 是给<b>人</b>看的。预览界面要显示
-     * 「为什么系统认为你想做这件事」，用户才能判断模型有没有理解错。
-     * 没有 reason 的操作，用户只能看到「将删除 device-3」，
-     * 无法判断这是不是自己的意思。</p>
-     *
-     * <p><b>违反会怎样：</b>预览失去意义，用户只能盲目点确认，
-     * 「预览再确认」这道防线就形同虚设。</p>
-     */
+    /** 缺 reason 必须拒绝：预览只显示「将删除 device-3」而不说为什么，用户无法判断模型有没有理解错，只能盲目点确认，这道防线就形同虚设。 */
     @Test
     public void shouldRejectMissingReason() {
         // Arrange：没有说明理由。
@@ -229,17 +167,7 @@ public class OperationSchemaValidatorTest {
                 "错误应指出缺少 reason，实际：" + result.getErrorMessage());
     }
 
-    /**
-     * 规则：多个结构问题一次全部报出，不是只报第一个。
-     *
-     * <p><b>为什么重要：</b>这条规则是为了让<b>模型</b>能一次改对。
-     * 只报第一个错误的话，模型改完再发，又撞上第二个错误 ——
-     * 每一轮都是一次真实的模型调用，都要花钱和时间。</p>
-     *
-     * <p><b>违反会怎样：</b>N 个错误要 N 轮才能修完，
-     * 延迟和成本都变成 N 倍。这和 Spring 的 {@code @Valid}
-     * 一次返回全部字段错误是同一个道理（阶段 3 学过）。</p>
-     */
+    /** 多个结构问题一次全部报出：只报第一个的话，N 个错误要 N 轮真实模型调用才修完，延迟和成本都变成 N 倍。 */
     @Test
     public void shouldReportAllStructuralProblemsAtOnce() {
         // Arrange：同时缺 deviceType、缺坐标、缺 reason。
@@ -256,19 +184,8 @@ public class OperationSchemaValidatorTest {
     }
 
     /**
-     * 规则：null 输入返回失败结果，而不是抛 NPE。
-     *
-     * <p><b>为什么重要：</b>这一层是<b>防线</b>，防线自己不能先崩。
-     * 上游解析失败时可能传下来 null，校验器要能安全应对。</p>
-     *
-     * <p><b>注意这和第二层的策略不同</b>：{@link SceneBusinessValidator}
-     * 对 null 是抛 {@link IllegalArgumentException}。区别在于职责 ——
-     * 这一层直面模型输出，null 属于「可能发生的脏输入」；
-     * 第二层的输入已经过本层校验，此时还是 null 就说明是调用方的 bug，
-     * 应当立刻暴露而不是伪装成校验失败。</p>
-     *
-     * <p><b>违反会怎样：</b>如果这里抛 NPE，一次模型输出异常会变成
-     * 500 错误，而不是一条可以回传给模型让它重试的可读提示。</p>
+     * null 输入返回失败结果而不是抛 NPE：这一层直面模型输出，null 属于可能发生的脏输入（第二层的 null 是调用方 bug，所以那边抛 {@link IllegalArgumentException}），
+     * 抛 NPE 会把一次脏输出变成 500 而不是一条能回传给模型的提示。
      */
     @Test
     public void shouldReturnFailureForNullOperation() {
