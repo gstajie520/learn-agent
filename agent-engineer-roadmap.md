@@ -232,6 +232,10 @@ Agent 能执行工具之后，第一件事不是加更多工具，而是把危�
 
 **完成标准：**能在不修改 Loop 主体的前提下，为某个工具加一条「必须人工确认」的策略，并留下审计记录。
 
+**Java 实现进度：**权限一半已完成 —— `05-llm-client/lessons/06-permissions.md` + `lesson06` 包，36 个离线测试。
+`GuardedAgentLoop` 注入 `PermissionPolicy`，`lesson05.AgentLoop` 一行未改，完成标准由
+`shouldAddConfirmationPolicyWithoutTouchingLoop` 证明。Hook 生命周期一半（第 7 课）待做。
+
 ## 阶段 9：上下文工程：计划、压缩、记忆
 
 长任务失败通常不是模型不够聪明，而是上下文管理失控。这一阶段解决「Agent 工作时间怎么变长」。

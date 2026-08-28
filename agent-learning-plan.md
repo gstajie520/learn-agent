@@ -123,13 +123,17 @@
 
 ## 下一阶段
 
-- 阶段：阶段 7 已完成（`lesson05`），两个贯穿项欠账均已清。**下一主任务：阶段 8 权限、Hook 与安全边界**
+- 阶段：阶段 8 的**权限半边已完成**（`lesson06`），Hook 半边未开始。**下一主任务：阶段 8 第 7 课 Hook 生命周期**
 - 主题（本期已交付 Tool Calling）：工具定义（名称、描述、参数 Schema）、模型返回 `tool_calls`、程序执行工具、结果以 `TOOL` 角色回传、`tool_call_id` 配对
 - 产出（已完成）：`lessons/04-tool-calling.md` + `lesson04` 包。最小工具注册表 + 一次完整「模型请求工具 → 程序执行 → 结果回传」往返，17 个测试全绿
 - 关键衔接：第 3 课的 `SceneOperation` 已经是「模型输出的结构化数据」，Tool Calling 换成由模型主动发起；两层校验规则已复用到工具参数上（`ToolArgumentValidator`）
 - 评估基线（已建）：`learn.agent.eval.MinimalEvaluationSetTest`，7 行回归基线，跨 lesson03/04
 - 阶段 7（已完成）：`lessons/05-agent-loop.md` + `lesson05` 包。`run` 返回 `AgentTrace`、工具超时、重复调用幂等、四道有序工具边界，15 个测试
-- 下一条主任务：**阶段 8 权限、Hook 与安全边界**（`code/chapters/ch03` 的 policy 四态、`ch04` 的 hooks 生命周期）
+- 阶段 8 权限半边（已完成）：`lessons/06-permissions.md` + `lesson06` 包。四态归约（`allow/deny/ask/passthrough`）、审批收敛、硬边界不可申诉、审计是闸门不是日志，36 个测试
+  - 完成标准已达成：`GuardedAgentLoop` 注入 `PermissionPolicy`，给 `delete_device` 加「必须人工确认」时 `lesson05.AgentLoop` **一行未改**，拒绝/批准两条路径都留审计记录
+  - 拆课理由：权限与 Hook 是两套独立机制，合成一课太重，按 `c6db8ce`（Redis 按主题拆课）的先例分成第 6、7 课
+  - 遗留：第 5 课的 `AgentLoop.executeWithBoundaries` 是私有方法、`AgentTrace` 的写入口是包私有，本课只能重写循环骨架 + 另写 `GuardedTrace`。已把代价写进注释，未回头给第 5 课加抽象
+- 下一条主任务：**阶段 8 第 7 课 Hook 生命周期**（`code/chapters/ch04` 的 hooks：四个事件、`updatedInput` 的三道锁、UserPromptSubmit/Stop 异常刻意不捕获的不对称）
 
 ### 路线偏差说明（需要你确认）
 
@@ -139,7 +143,7 @@
 
 ### 贯穿项欠账（必须先补）
 
-- **最小评估集**：已建（`MinimalEvaluationSetTest`，7 行）。后续阶段需增量扩充：每进入一个新阶段，往里面加 3-5 行覆盖新能力的用例
+- **最小评估集**：已建（`MinimalEvaluationSetTest`，现 15 行，跨 lesson03/04/06）。后续阶段需增量扩充：每进入一个新阶段，往里面加 3-5 行覆盖新能力的用例
 - **Trace 与结构化日志**：已补（`AgentTrace`/`RoundTrace`，阶段 7）。做成内存里可断言的对象而不是日志行：测试能直接断言「第 2 轮调了哪个工具、为什么停」，不用 grep stdout；后续接日志框架时序列化即可，不必重新找埋点位置
 
 ### 阶段 5 收尾可选项
@@ -421,3 +425,24 @@
 - 全量：165 个测试，唯一 error 仍是既有 `HttpModelClientTest` 真实调用的 PKIX 证书问题（本机网络环境，与本次改动无关）
 - 待学习者验收：口头回答「谁决定调工具、谁真正执行、结果如何回到模型、什么时候结束」，以及「幂等键为什么不能包含 tool_call_id」
 - 下一次主任务：**阶段 8 权限、Hook 与安全边界**（把第 4/5 课那道硬编码的破坏性闸门换成可配置的四态权限决定 + 审计记录）
+
+### 本期记录：阶段 8 前半（第 6 课 权限策略）
+
+- 拆课决定：阶段 8 拆成第 6 课（权限）+ 第 7 课（Hook），沿用 `c6db8ce` 按主题拆课的先例。两半的合并优先级不同，硬塞一课会让两套优先级互相污染
+- 完成标准已达成：`GuardedAgentLoop` + 注入的 `PermissionPolicy` 给 `delete_device` 加上「必须人工确认」，`lesson05.AgentLoop` **一个字节都没改**。由 `shouldAddConfirmationPolicyWithoutTouchingLoop` 和演示场景三证明（同一份 Loop 代码，拒绝时 handler 执行 0 次、批准时 1 次，两种都留下审计记录）
+- 四态不是三态：`allow | deny | ask | passthrough`。`ALLOW`/`DENY` 是唯一允许离开策略的值，`ASK`/`PASSTHROUGH` 是中间态，`isFinal()` 就是这条边界
+- 归约不用 `max`/`Comparator`：`strongest()` 是按 `{DENY, ASK, ALLOW}` 显式扫三遍。**绝不用 `ordinal()`** —— 那把优先级绑在枚举声明顺序上，同级冲突还必须取列表里最靠前的候选，`max` 给不出这个保证。`passthrough` 候选直接不参与投票（弃权不是票）
+- 候选收集顺序固定：硬边界 → 破坏性默认 → Hook 建议 → 规则（注册顺序）
+- `passthrough` 归一为 **allow** 不是 deny：否则每加一个新工具都得先补一条规则才能用
+- ask 五路 fail-closed：无审批器 / 审批器抛异常 / 返回 null / 返回 ask / 返回 passthrough，全部落到 deny
+- 硬边界拒绝**不可上诉** —— 审批器连问都不问。Java 侧域重映射：原教材那条 workspace 路径边界换成 `SceneSnapshot.isProtected(deviceId)`，因为 `ToolEffect` 只有 READ/WRITE/DESTRUCTIVE，没有 execute，路径在这个域里没有对应物
+- 审计是**闸门不是日志**：`record()` 抛异常 → `decide()` 抛异常 → Loop 转成 `permission_evaluation_error` → handler 不执行。吞掉异常会造成「副作用已发生却无记录」，比操作失败严重得多。每次 `decide()` 恰好一条记录，写在最终决定之后，所以审计里只有 allow/deny
+- 裁决必须排在**幂等缓存之前**：反过来的话，一次被批准的调用会绕过后续全部裁决，权限只在首次调用生效
+- 规则谓词抛异常 → 按那条规则的名字 deny。捕获 `Throwable` 而不是 `RuntimeException`：自递归匹配器抛的是 `StackOverflowError`，漏出去就既没有 deny **也没有审计记录**，正是审计要防的那种状态
+- 值类全部 `final`：非 final 的 `PermissionDecision` 允许审批器返回一个子类，在 `isFinal()` 检查时报 DENY、检查过后报 ALLOW，这是个 TOCTOU 缺口
+- 如实记下的设计债：第 5 课 `executeWithBoundaries` 是私有方法、`AgentTrace.addRound`/`finish` 是**包私有**，所以本课复用不了，只能新写 `GuardedTrace` 并重写循环骨架。包私有是**包**边界不是类边界 —— 换个包就够不着。没有回头给第 5 课加 `ToolGate` 抽象：那层抽象要见过第二个用例才讲得清，选择保留重复、把代价写进注释
+- 代码产出：`lesson06` 八个权限类 + `GuardedTrace` + `GuardedAgentLoop` + `PermissionDemo`
+- 测试产出：`PermissionPolicyTest` 26 个 + `GuardedAgentLoopTest` 10 个，共 36 个全绿全离线
+- 全量：195 个测试 0 失败 0 错误，排除的 3 个是既有 `HttpModelClientTest` 真实网络调用（本机 PKIX 证书问题，与本次改动无关）
+- 待学习者验收：`lessons/06-permissions.md` 的 6 道验收题，重点是第 2 题（换成 `ordinal()` 版会挂哪两个测试）和第 5 题（忽略审计异常后系统进入什么状态）
+- 下一次主任务：**阶段 8 第 7 课 Hook 生命周期**

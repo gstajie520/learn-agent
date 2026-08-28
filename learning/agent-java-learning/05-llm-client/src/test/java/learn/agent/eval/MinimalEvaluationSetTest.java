@@ -6,6 +6,7 @@ import learn.agent.llm.lesson03.SceneSnapshot;
 import learn.agent.llm.lesson03.SceneOperationService;
 import learn.agent.llm.lesson03.ValidationResult;
 
+import learn.agent.llm.lesson04.PreparedToolCall;
 import learn.agent.llm.lesson04.ToolCall;
 import learn.agent.llm.lesson04.ToolCallCodec;
 import learn.agent.llm.lesson04.ToolCallingService;
@@ -18,14 +19,29 @@ import learn.agent.llm.lesson04.ToolRegistry;
 
 import learn.agent.llm.lesson05.AgentLoop;
 import learn.agent.llm.lesson05.AgentTrace;
-import learn.agent.llm.lesson05.StopReason;
-import learn.agent.llm.lesson05.TraceIdGenerator;
-
-import learn.agent.llm.lesson05.AgentLoop;
-import learn.agent.llm.lesson05.AgentTrace;
 import learn.agent.llm.lesson05.RoundTrace;
 import learn.agent.llm.lesson05.StopReason;
 import learn.agent.llm.lesson05.TraceIdGenerator;
+
+import learn.agent.llm.lesson06.ApprovalProvider;
+import learn.agent.llm.lesson06.AuditSink;
+import learn.agent.llm.lesson06.GuardedAgentLoop;
+import learn.agent.llm.lesson06.GuardedTrace;
+import learn.agent.llm.lesson06.PermissionBehavior;
+import learn.agent.llm.lesson06.PermissionDecision;
+import learn.agent.llm.lesson06.PermissionPolicy;
+import learn.agent.llm.lesson06.PermissionRequest;
+import learn.agent.llm.lesson06.PermissionRule;
+
+import learn.agent.llm.lesson06.ApprovalProvider;
+import learn.agent.llm.lesson06.AuditSink;
+import learn.agent.llm.lesson06.GuardedAgentLoop;
+import learn.agent.llm.lesson06.GuardedTrace;
+import learn.agent.llm.lesson06.PermissionBehavior;
+import learn.agent.llm.lesson06.PermissionDecision;
+import learn.agent.llm.lesson06.PermissionPolicy;
+import learn.agent.llm.lesson06.PermissionRequest;
+import learn.agent.llm.lesson06.PermissionRule;
 
 import learn.agent.llm.lesson01.FakeModelClient;
 import learn.agent.llm.lesson01.FinishReason;
@@ -46,8 +62,8 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 最小评估集：跨第 3 课（Structured Output）、第 4 课（Tool Calling）
- * 和第 5 课（Agent Loop）的回归基线。
+ * 最小评估集：跨第 3 课（Structured Output）、第 4 课（Tool Calling）、
+ * 第 5 课（Agent Loop）和第 6 课（权限与审计）的回归基线。
  *
  * <p>贯穿项要求「拿到第一个 Structured Output 就建」，本套件把各条链路的
  * 典型输入与期望结果做成一张可运行的表。每次改动业务代码后跑一遍，
@@ -112,7 +128,7 @@ public class MinimalEvaluationSetTest {
     }
 
     /**
-     * 规则：11 条基线用例全部通过，任何一条挂了都要指出是哪一条。
+     * 规则：15 条基线用例全部通过，任何一条挂了都要指出是哪一条。
      *
      * <p>这几条链路后面还会反复改（加权限、加日志、换实现）。没有基线，
      * 改完只能靠人工看一遍，改错误码或改 TOOL 回传前缀这类小改动很容易漏掉。</p>
@@ -356,6 +372,129 @@ public class MinimalEvaluationSetTest {
                     }
                     if (trace.getTotalTokens() != 320) {
                         return "token 应累加为 320，实际：" + trace.getTotalTokens();
+                    }
+                    return null;
+                }));
+
+        // ---- 第 6 课：权限与审计（阶段 8） ----
+
+        rows.add(new Row("破坏性工具无审批器即拒绝", "behavior=deny 且不执行",
+                () -> {
+                    AtomicInteger listCalls = new AtomicInteger();
+                    ToolRegistry registry = registryWith(listCalls);
+                    PreparedToolCall prepared = registry.prepare(
+                            new ToolCall("c1", "delete_device", "{\"targetId\":\"radar-01\"}"));
+                    // 没有审批器：ask 必须收敛成 deny，而不是「没人管就放过」。
+                    PermissionDecision decision = new PermissionPolicy(null, null, null)
+                            .decide(new PermissionRequest(prepared,
+                                    new ToolContext("eval", scene())));
+                    if (decision.getBehavior() != PermissionBehavior.DENY) {
+                        return "无审批器时应 deny，实际：" + decision.getBehavior().getWireValue();
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("受保护设备人也批不动", "硬边界 deny 且不问审批器",
+                () -> {
+                    AtomicInteger listCalls = new AtomicInteger();
+                    ToolRegistry registry = registryWith(listCalls);
+                    // cam-01 在受保护集合里；审批器一律放行，仍然应当被拒。
+                    PreparedToolCall prepared = registry.prepare(
+                            new ToolCall("c1", "delete_device", "{\"targetId\":\"cam-01\"}"));
+                    final AtomicInteger asked = new AtomicInteger();
+                    PermissionDecision decision = new PermissionPolicy(null,
+                            new ApprovalProvider() {
+                                @Override
+                                public PermissionDecision decide(PermissionRequest request) {
+                                    asked.incrementAndGet();
+                                    return new PermissionDecision(
+                                            PermissionBehavior.ALLOW, "我批了", "human");
+                                }
+                            }, null)
+                            .decide(new PermissionRequest(prepared,
+                                    new ToolContext("eval", scene())));
+                    if (decision.getBehavior() != PermissionBehavior.DENY) {
+                        return "硬边界应 deny，实际：" + decision.getBehavior().getWireValue();
+                    }
+                    if (asked.get() != 0) {
+                        return "硬边界不该问审批器，实际被问 " + asked.get() + " 次";
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("不改 Loop 即可加人工确认", "批准后才执行且留痕",
+                () -> {
+                    AtomicInteger listCalls = new AtomicInteger();
+                    FakeModelClient fake = new FakeModelClient();
+                    fake.enqueueResponse(
+                            ToolCallCodec.encode(new ToolCall("c1", "list_devices", "{}")),
+                            FinishReason.TOOL_CALLS, new TokenUsage(120, 30));
+                    fake.enqueueResponse("已列出。", FinishReason.STOP, new TokenUsage(150, 20));
+                    ToolRegistry registry = registryWith(listCalls);
+                    // 给只读工具单独加一条 ask 规则：Loop 代码一行不改。
+                    final List<PermissionDecision> audited = new ArrayList<PermissionDecision>();
+                    PermissionPolicy policy = new PermissionPolicy(
+                            Collections.singletonList(new PermissionRule(
+                                    "confirm-list", PermissionBehavior.ASK, "本次演练要求确认",
+                                    new PermissionRule.Matcher() {
+                                        @Override
+                                        public boolean matches(PermissionRequest request) {
+                                            return "list_devices".equals(request.getToolName());
+                                        }
+                                    })),
+                            new ApprovalProvider() {
+                                @Override
+                                public PermissionDecision decide(PermissionRequest request) {
+                                    return new PermissionDecision(
+                                            PermissionBehavior.ALLOW, "人工批准", "human");
+                                }
+                            },
+                            new AuditSink() {
+                                @Override
+                                public void record(PermissionRequest request,
+                                                   PermissionDecision decision) {
+                                    audited.add(decision);
+                                }
+                            });
+                    new GuardedAgentLoop("m", fake, registry, new ToolContext("eval", scene()),
+                            5, 1000L, TraceIdGenerator.fixed("eval-5"), policy)
+                            .run("你是助手", "有哪些设备？");
+                    if (listCalls.get() != 1) {
+                        return "批准后应执行一次，实际：" + listCalls.get();
+                    }
+                    if (audited.size() != 1 || !"human".equals(audited.get(0).getSource())) {
+                        return "应留下一条 source=human 的审计，实际：" + audited;
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("审计写失败则不执行", "audit 是闸门不是日志",
+                () -> {
+                    AtomicInteger listCalls = new AtomicInteger();
+                    FakeModelClient fake = new FakeModelClient();
+                    fake.enqueueResponse(
+                            ToolCallCodec.encode(new ToolCall("c1", "list_devices", "{}")),
+                            FinishReason.TOOL_CALLS, new TokenUsage(120, 30));
+                    fake.enqueueResponse("好了。", FinishReason.STOP, new TokenUsage(150, 20));
+                    // 只读工具本来一定放行，但审计落盘失败时也必须不执行 ——
+                    // 否则就会出现「副作用发生了，却没有任何记录」。
+                    PermissionPolicy policy = new PermissionPolicy(null, null, new AuditSink() {
+                        @Override
+                        public void record(PermissionRequest request, PermissionDecision decision) {
+                            throw new IllegalStateException("审计落盘失败");
+                        }
+                    });
+                    GuardedTrace trace = new GuardedAgentLoop("m", fake,
+                            registryWith(listCalls), new ToolContext("eval", scene()),
+                            5, 1000L, TraceIdGenerator.fixed("eval-6"), policy)
+                            .run("你是助手", "有哪些设备？");
+                    if (listCalls.get() != 0) {
+                        return "审计失败时不该执行，实际执行 " + listCalls.get() + " 次";
+                    }
+                    if (!"permission_evaluation_error".equals(
+                            trace.getRounds().get(0).getErrorCode())) {
+                        return "应回传 permission_evaluation_error，实际："
+                                + trace.getRounds().get(0).getErrorCode();
                     }
                     return null;
                 }));
