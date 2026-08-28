@@ -232,9 +232,12 @@ Agent 能执行工具之后，第一件事不是加更多工具，而是把危�
 
 **完成标准：**能在不修改 Loop 主体的前提下，为某个工具加一条「必须人工确认」的策略，并留下审计记录。
 
-**Java 实现进度：**权限一半已完成 —— `05-llm-client/lessons/06-permissions.md` + `lesson06` 包，36 个离线测试。
-`GuardedAgentLoop` 注入 `PermissionPolicy`，`lesson05.AgentLoop` 一行未改，完成标准由
-`shouldAddConfirmationPolicyWithoutTouchingLoop` 证明。Hook 生命周期一半（第 7 课）待做。
+**Java 实现进度：已完成。**拆成两课：`05-llm-client/lessons/06-permissions.md` + `lesson06` 包（权限，36 个测试）
+和 `lessons/07-hooks.md` + `lesson07` 包（Hook 生命周期，33 个测试），共 69 个离线测试。
+完成标准由 `shouldAddConfirmationPolicyWithoutTouchingLoop` 证明：`GuardedAgentLoop` 注入 `PermissionPolicy`，
+`lesson05.AgentLoop` 一行未改。第 7 课补上四个事件、`updatedInput` 的三道锁（保 id、保工具名、按引用相等保
+定义）与 `stopHookActive`（无限续写在机制上不可能）；`HookedAgentLoopTest.shouldFireHooksInDocumentedOrder`
+断言链路顺序为 `user → pre → permission → handler → post → stop`，即 Hook 能在裁决前改参数，改完仍要过裁决。
 
 ## 阶段 9：上下文工程：计划、压缩、记忆
 

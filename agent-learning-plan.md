@@ -123,7 +123,7 @@
 
 ## 下一阶段
 
-- 阶段：阶段 8 的**权限半边已完成**（`lesson06`），Hook 半边未开始。**下一主任务：阶段 8 第 7 课 Hook 生命周期**
+- 阶段：**阶段 8 已完成**（`lesson06` 权限 + `lesson07` Hook）。**下一主任务：阶段 9 上下文工程（计划、压缩、记忆）**
 - 主题（本期已交付 Tool Calling）：工具定义（名称、描述、参数 Schema）、模型返回 `tool_calls`、程序执行工具、结果以 `TOOL` 角色回传、`tool_call_id` 配对
 - 产出（已完成）：`lessons/04-tool-calling.md` + `lesson04` 包。最小工具注册表 + 一次完整「模型请求工具 → 程序执行 → 结果回传」往返，17 个测试全绿
 - 关键衔接：第 3 课的 `SceneOperation` 已经是「模型输出的结构化数据」，Tool Calling 换成由模型主动发起；两层校验规则已复用到工具参数上（`ToolArgumentValidator`）
@@ -133,7 +133,9 @@
   - 完成标准已达成：`GuardedAgentLoop` 注入 `PermissionPolicy`，给 `delete_device` 加「必须人工确认」时 `lesson05.AgentLoop` **一行未改**，拒绝/批准两条路径都留审计记录
   - 拆课理由：权限与 Hook 是两套独立机制，合成一课太重，按 `c6db8ce`（Redis 按主题拆课）的先例分成第 6、7 课
   - 遗留：第 5 课的 `AgentLoop.executeWithBoundaries` 是私有方法、`AgentTrace` 的写入口是包私有，本课只能重写循环骨架 + 另写 `GuardedTrace`。已把代价写进注释，未回头给第 5 课加抽象
-- 下一条主任务：**阶段 8 第 7 课 Hook 生命周期**（`code/chapters/ch04` 的 hooks：四个事件、`updatedInput` 的三道锁、UserPromptSubmit/Stop 异常刻意不捕获的不对称）
+- 阶段 8 Hook 半边（已完成）：`lessons/07-hooks.md` + `lesson07` 包。四个事件、`updatedInput` 三道锁、`stopHookActive` 兜住无限续写、UserPromptSubmit/Stop 异常刻意不捕获的不对称，33 个测试
+  - 顺序命题由 `shouldFireHooksInDocumentedOrder` 钉住：`user → pre → permission → handler → post → stop`。permission 夹在 pre 之后、handler 之前，Hook 能在裁决前改参数，改完仍要过裁决
+- 下一条主任务：**阶段 9 上下文工程**（`code/chapters/ch05` 起：会话计划快照、上下文压缩、记忆机制）
 
 ### 路线偏差说明（需要你确认）
 
@@ -143,7 +145,7 @@
 
 ### 贯穿项欠账（必须先补）
 
-- **最小评估集**：已建（`MinimalEvaluationSetTest`，现 15 行，跨 lesson03/04/06）。后续阶段需增量扩充：每进入一个新阶段，往里面加 3-5 行覆盖新能力的用例
+- **最小评估集**：已建（`MinimalEvaluationSetTest`，现 19 行，跨 lesson03/04/06/07）。后续阶段需增量扩充：每进入一个新阶段，往里面加 3-5 行覆盖新能力的用例
 - **Trace 与结构化日志**：已补（`AgentTrace`/`RoundTrace`，阶段 7）。做成内存里可断言的对象而不是日志行：测试能直接断言「第 2 轮调了哪个工具、为什么停」，不用 grep stdout；后续接日志框架时序列化即可，不必重新找埋点位置
 
 ### 阶段 5 收尾可选项
@@ -446,3 +448,25 @@
 - 全量：195 个测试 0 失败 0 错误，排除的 3 个是既有 `HttpModelClientTest` 真实网络调用（本机 PKIX 证书问题，与本次改动无关）
 - 待学习者验收：`lessons/06-permissions.md` 的 6 道验收题，重点是第 2 题（换成 `ordinal()` 版会挂哪两个测试）和第 5 题（忽略审计异常后系统进入什么状态）
 - 下一次主任务：**阶段 8 第 7 课 Hook 生命周期**
+
+### 本期记录：阶段 8 后半（第 7 课 Hook 生命周期）—— 阶段 8 完成
+
+- 阶段 8 到此完整交付：第 6 课权限 + 第 7 课 Hook，`lesson06` 36 个测试 + `lesson07` 33 个测试
+- 只有四个事件：UserPromptSubmit、PreToolUse、PostToolUse、Stop。链路是 `prepare → Pre → 权限裁决 → 幂等缓存 → 限时执行 → Post`
+- **权限裁决排在 Pre 之后、执行之前**：Hook 能在裁决前改参数，但改完还得过裁决。Hook 的权限意见只生成**候选**（`source=pre-tool-hook`），最终决定权仍在策略手里 —— `shouldKeepHardBoundaryAboveHookAllow` 证明 Hook 说 allow 也翻不动受保护设备
+- 两套优先级阶梯**刻意不共用**：策略归约是三级（passthrough 弃权、不计票），Hook 合并是四级（`passthrough:0, allow:1, ask:2, deny:3`）。合并要的是「多个 Hook 里最严的那个」，弃权在这里必须是可比较的最低档
+- `updatedInput` 三道锁，威胁模型是「批准 A、执行 B」：① 保留 `tool_call_id` ② 保留工具名 ③ **definition 必须是同一个对象**，用 `!=` 判引用不是 `equals` —— `ToolDefinition` 没重写 equals，而「就是注册表里那一个」本来只有引用相等能表达。过锁之后**重跑参数校验**（Hook 改的参数不比模型给的更可信），再**新构造**一个 `PreparedToolCall` 返回，和 Hook 手里那份引用彻底断开
+- 异常走向**故意不对称**：UserPromptSubmit 和 Stop 的异常**不捕获**，直接终止整次运行（这两步失败意味着输入还没成形 / 结局还没定）；PreToolUse、PostToolUse 的异常降级成工具错误，模型下一轮还能换做法。`hook_contract_error` 和 `hook_execution_error` 分成两个错误码：前者是 Hook 写错了，后者是 Hook 跑挂了，排查方向完全不同
+- PostToolUse 挂掉要**如实回传**「工具已执行但结果未能处理」：副作用已经发生，不能假装什么都没跑
+- 三条消息角色约束，每条都对应一个伪造手段：`additionalContext` 只收 SYSTEM（Hook 不能冒充用户）、`forceContinue` 只收 USER（模型不会答一条 system 消息）、`blockingError` 必须是错误态（否则 Hook 能伪造一次「执行成功了」而工具压根没跑）
+- `stopHookActive` 让无限续写**在机制上不可能**：注册表直接吞掉第二次 `forceContinue`，不靠 Hook 自律。`additionalContext` 保留 —— 它只是说明文字，无害
+- Builder 在 setter 里校验而不是 `build()` 里：报错要指向写错的那一行
+- `validateFor` 在归一化**之前**跑：一个 Stop Hook 返回 `updatedInput` 是写错了，不该被静默忽略
+- 串行执行、逐个重新构造上下文：第二个 Hook 看到的是第一个改过之后的状态，不是模型最初那份。`blockingError` 或 `forceContinue` 一出现就短路，后面的 Hook 不再跑
+- 上一课的结论这次用上了：`GuardedTrace.addRound`/`addDecision`/`finish` 由包私有**改成 public**。第 6 课刚写下「希望被下游扩展的类，写入口不能停在包私有」，第 7 课就是那个下游 —— 不改就得连犯两次同样的错误（第三个一模一样的轨迹类）。代价也写进注释了：写入口公开后，任何拿到 trace 的人都能往里塞记录，轨迹不再只由循环写
+- 代码产出：`lesson07` 的 `HookEvent`、`HookContext`、`HookResult`、`HookCallback`、`HookRegistry`、`HookContractException`、`HookedAgentLoop`、`HookDemo`
+- 测试产出：`HookRegistryTest` 19 个 + `HookedAgentLoopTest` 14 个，共 33 个全绿全离线。核心断言是 `顺序 == [user, pre, permission, handler, post, stop]`
+- 评估集扩到 19 行（新增 4 行覆盖第 7 课：阶段顺序、契约锁拦下换工具名、Hook 建议翻不动硬边界、Stop 只能续一轮）
+- 全量：234 个测试 0 失败 0 错误（本次 3 个真实网络测试也跑过了）
+- 待学习者验收：`lessons/07-hooks.md` 的验收题，重点是第三道锁为什么用 `!=` 而不是 `equals`，以及 UserPromptSubmit/PreToolUse 的异常为什么走两条不同的路
+- 下一次主任务：**阶段 9 上下文工程**（会话计划、上下文压缩、记忆机制）
