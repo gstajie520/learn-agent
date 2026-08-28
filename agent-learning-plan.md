@@ -26,7 +26,7 @@
 | 4 | Redis：状态、缓存、幂等 | — | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
 | 5 | LLM 调用基础 | ch01 | DONE | 第 1、2 课完成：`ModelClient` 接口、Fake 客户端、真实 HTTP 调用、超时与指数退避；132 个测试通过（3 个真实调用待配密钥） |
 | 6 | Structured Output 与 Tool Calling | ch02 | IN_PROGRESS | Structured Output（作为阶段 5 第 3 课交付）52 个测试；Tool Calling 完成（作为阶段 5 第 4 课交付）：`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传，17 个测试；阶段 6 主体完成 |
-| 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | NOT_STARTED |  |
+| 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | DONE | 作为阶段 5 第 5 课交付（`lesson05`）：`run` 返回 `AgentTrace` 而非字符串、工具超时、重复调用幂等、每轮 trace；15 个测试 |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | NOT_STARTED |  |
 | 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | NOT_STARTED |  |
 | 10 | RAG 与 Skill 按需加载 | ch07 | NOT_STARTED |  |
@@ -44,7 +44,7 @@
 | 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
 | 最小评估集 | 6 | **完成** | 已建 `learn.agent.eval.MinimalEvaluationSetTest`：跨 lesson03/04 的 7 行回归基线，改完 `mvn -o test` 即跑 |
-| Trace 与结构化日志 | 7 | NOT_STARTED | 待创建。当前 `SceneOperationService` 只累加 token，没有 trace id |
+| Trace 与结构化日志 | 7 | **完成** | 已建 `AgentTrace`/`RoundTrace`：trace id + 每轮工具名、`tool_call_id`、结局、耗时、token；`toLogLine()` 输出 `key=value` 可 grep |
 | 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 三课的文档均已含「常见面试题」 |
 
 ## 当前阶段
@@ -98,6 +98,12 @@
 - 第三课坚持「只生成预览，不修改数据」；`SceneSnapshot` 为不可变快照，校验全程无写操作
 - 统一多模块工程全量测试通过：151 个测试，0 失败、0 错误、6 跳过（3 个真实 Redis 缺 `REDIS_PASSWORD`，3 个真实模型调用缺 `OPENAI_*`）
 - 各模块分布：状态机 8、并发 6、Spring Boot 3、Redis 12（跳 3）、llm-client 122（跳 3）
+- 已按学习反馈重写测试注释风格：从固定的「规则 / 为什么重要 / 违反会怎样」三段表改为一句话说清在证明哪条规则。原因是每段都写「很重要」，信号就没了
+- 已生成第 5 阶段第五课（阶段 7）：手写 Agent Loop。`run` 返回 `AgentTrace` 而不是 `String`，停止原因是 `StopReason` 枚举
+- 第五课只补 lesson04 没有的三件事：工具超时、重复 tool call 幂等、trace id 与每轮日志；最大轮次/白名单/参数校验/异常回传直接复用 lesson04
+- 四道有序工具边界：prepare（零副作用）→ 破坏性闸门 → 幂等缓存 → 超时执行。破坏性闸门在缓存之前，因为「不执行」不需要缓存
+- 幂等键故意不含 `tool_call_id`（每次都不同，算进去永不命中）；失败结果不缓存，避免一次偶发超时在整个会话里变成永久失败
+- 第五课 15 个测试全绿（`AgentLoopTest` 10 + `ToolCallMemoTest` 5）；`TraceIdGenerator` 接口让 trace id 在测试里可固定
 
 ## 需要复习
 
@@ -117,12 +123,13 @@
 
 ## 下一阶段
 
-- 阶段：主体已完成，贯穿项最小评估集已建。**下一主任务：阶段 7 手写 Agent Loop**
+- 阶段：阶段 7 已完成（`lesson05`），两个贯穿项欠账均已清。**下一主任务：阶段 8 权限、Hook 与安全边界**
 - 主题（本期已交付 Tool Calling）：工具定义（名称、描述、参数 Schema）、模型返回 `tool_calls`、程序执行工具、结果以 `TOOL` 角色回传、`tool_call_id` 配对
 - 产出（已完成）：`lessons/04-tool-calling.md` + `lesson04` 包。最小工具注册表 + 一次完整「模型请求工具 → 程序执行 → 结果回传」往返，17 个测试全绿
 - 关键衔接：第 3 课的 `SceneOperation` 已经是「模型输出的结构化数据」，Tool Calling 换成由模型主动发起；两层校验规则已复用到工具参数上（`ToolArgumentValidator`）
 - 评估基线（已建）：`learn.agent.eval.MinimalEvaluationSetTest`，7 行回归基线，跨 lesson03/04
-- 下一条主任务：**阶段 7 手写 Agent Loop**（并把 Trace/结构化日志补上，这也是贯穿项欠账）
+- 阶段 7（已完成）：`lessons/05-agent-loop.md` + `lesson05` 包。`run` 返回 `AgentTrace`、工具超时、重复调用幂等、四道有序工具边界，15 个测试
+- 下一条主任务：**阶段 8 权限、Hook 与安全边界**（`code/chapters/ch03` 的 policy 四态、`ch04` 的 hooks 生命周期）
 
 ### 路线偏差说明（需要你确认）
 
@@ -133,7 +140,7 @@
 ### 贯穿项欠账（必须先补）
 
 - **最小评估集**：已建（`MinimalEvaluationSetTest`，7 行）。后续阶段需增量扩充：每进入一个新阶段，往里面加 3-5 行覆盖新能力的用例
-- **Trace 与结构化日志**：路线要求从阶段 7 手写 Loop 起打 trace id、轮次、工具名、耗时、token。当前 `SceneOperationService` 只累加 token，没有 trace id
+- **Trace 与结构化日志**：已补（`AgentTrace`/`RoundTrace`，阶段 7）。做成内存里可断言的对象而不是日志行：测试能直接断言「第 2 轮调了哪个工具、为什么停」，不用 grep stdout；后续接日志框架时序列化即可，不必重新找埋点位置
 
 ### 阶段 5 收尾可选项
 
@@ -397,3 +404,20 @@
 - 验证：`mvn -o test -Dtest=MinimalEvaluationSetTest` BUILD SUCCESS；全量 llm-client 150 测试（唯一 error 仍是既有 HttpModelClientTest PKIX 网络抖动）
 - 待学习者验收：口头说明「为什么评估集用可执行断言而不是静态表格」
 - 下一次主任务：阶段 7 手写 Agent Loop，并顺手补 Trace/结构化日志
+
+### 2026-08-28（阶段 7：手写 Agent Loop 与工具边界 + 贯穿项 Trace）
+
+- 本次目标：把第 4 课的循环重写成有完整边界和可观测性的 Loop，同时补齐贯穿项「Trace 与结构化日志」
+- 先做的判断：阶段 7 七项要求里，最大轮次/白名单/参数校验/异常回传第 4 课已有，**真正新增的只有三项** —— 工具超时、重复 tool call 幂等、trace id 与每轮日志。所以 `lesson05` 是复用 `lesson04` 的注册表和消息类型，不重写一遍
+- 核心变化一：`run` 返回 `AgentTrace` 而不是 `String`。第 4 课的字符串返回值答不了「为什么停、跑了几轮、花了多少 token」，调用方只能去正则匹配模型说的话；现在停止原因是 `StopReason` 枚举，一个 if 就能判断是否异常收尾
+- 核心变化二：Trace 做成**可断言的内存对象**，不是日志行。仓库里没有任何日志框架且构建离线，加 slf4j 不是选项；做成 `RoundTrace`/`AgentTrace` 后测试能直接断言「第 2 轮调了 create_device、因为 X 停止」，`toLogLine()` 又能随时输出成 `key=value` 的结构化行
+- 核心变化三：四道边界按固定顺序 —— prepare（白名单+解析+校验，零副作用）→ 破坏性闸门 → 幂等缓存 → 超时执行。破坏性闸门刻意放在缓存**之前**，因为「没有执行」这件事不需要缓存
+- 超时的诚实表述：`future.cancel(true)` 只发中断信号，不理中断标志的工具会继续跑完。所以 `tool_timeout` 的含义是「我放弃等待了」，不是「已取消」；这道闸门是最后一道防线，工具自己也该有超时
+- 幂等键 = 工具名 + 原始参数串，**故意不含 `tool_call_id`**（每次都不同，算进去就永远命中不了）；失败结果不缓存，否则一次偶发超时会在整个会话里变成永久失败。已知限制：字面量比较，`{"a":1,"b":2}` 和 `{"b":2,"a":1}` 算两个键
+- 顺手第二次应用第 1 课的接口隔离思路：`TraceIdGenerator` 把随机性隔离到接口后，测试用 `fixed("trace-1")` 断言精确的 trace id（第 1 课隔离的是网络，这次隔离的是随机数）
+- 代码产出：`lesson05` 八个主类（`AgentLoop`、`AgentTrace`、`RoundTrace`、`StopReason`、`ToolCallMemo`、`ToolTimeoutGuard`、`TraceIdGenerator`、`AgentLoopDemo`）
+- 测试产出：`AgentLoopTest` 10 个 + `ToolCallMemoTest` 5 个，共 15 个全绿全离线；覆盖超时、幂等、五种停止原因和每轮 trace 字段
+- 端到端验证：`AgentLoopDemo` 五个场景输出正确，含「工具卡住超时后放弃等待」和「模型请求 2 次但 handler 只执行 1 次」
+- 全量：165 个测试，唯一 error 仍是既有 `HttpModelClientTest` 真实调用的 PKIX 证书问题（本机网络环境，与本次改动无关）
+- 待学习者验收：口头回答「谁决定调工具、谁真正执行、结果如何回到模型、什么时候结束」，以及「幂等键为什么不能包含 tool_call_id」
+- 下一次主任务：**阶段 8 权限、Hook 与安全边界**（把第 4/5 课那道硬编码的破坏性闸门换成可配置的四态权限决定 + 审计记录）

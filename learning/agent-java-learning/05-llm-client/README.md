@@ -11,17 +11,24 @@
 | 1 | 模型调用边界、消息角色、Token、错误分类、Fake 客户端 | [01-model-client.md](lessons/01-model-client.md) | `learn.agent.llm.lesson01` | `learn.agent.llm.lesson01` |
 | 2 | 真实 HTTP 调用、配置校验、超时、指数退避与抖动 | [02-real-http-call.md](lessons/02-real-http-call.md) | `learn.agent.llm.lesson02` | `learn.agent.llm.lesson02` |
 | 3 | Structured Output：JSON 提取、两层校验、预览而非执行 | [03-structured-output.md](lessons/03-structured-output.md) | `learn.agent.llm.lesson03` | `learn.agent.llm.lesson03` |
+| 4 | Tool Calling：模型主动选工具、prepare/invoke 分离、破坏性确认 | [04-tool-calling.md](lessons/04-tool-calling.md) | `learn.agent.llm.lesson04` | `learn.agent.llm.lesson04` |
+| 5 | Agent Loop：四道工具边界、超时、幂等、Trace 与停止原因 | [05-agent-loop.md](lessons/05-agent-loop.md) | `learn.agent.llm.lesson05` | `learn.agent.llm.lesson05` |
 
-后续课次（尚未生成）：Tool Calling、Streaming 流式输出、连接池复用。
+后续课次（尚未生成，均不阻塞后续阶段）：Streaming 流式输出、连接池复用。
 
-三课之间的关系是本阶段的主线：
+五课之间的关系是本阶段的主线：
 
 - 第 1 课用 Fake 客户端把业务规则测清楚；
 - 第 2 课换成真实 HTTP，而**业务代码一行都没改** —— 这是第 1 课那层 `ModelClient` 接口的回报；
-- 第 3 课让模型输出**结构化数据而不是文本**，程序因此可以直接执行它 —— 但必须先过两层校验。
+- 第 3 课让模型输出**结构化数据而不是文本**，程序因此可以直接执行它 —— 但必须先过两层校验；
+- 第 4 课把发起权交给模型：**模型自己决定**调哪个工具、传什么参数，程序负责执行和把关；
+- 第 5 课给这个循环加上完整边界（超时、幂等）和可观测性（Trace），并把「为什么停」变成枚举。
 
 第 3 课是从「聊天机器人」转向「Agent 应用」的分界线。前两课的模型输出是给人看的文本，
 第 3 课开始，模型输出的是给**程序**执行的数据，所以校验从"可选"变成"必须"。
+
+第 4 课是第二条分界线：前三课都是**程序要求模型输出点什么**，第 4 课起是**模型决定程序做什么**。
+第 5 课不引入新能力，只把这个循环变成可以放心跑的东西 —— 有上限、有超时、有去重、出问题能归因。
 
 ## 统一运行
 
@@ -31,7 +38,7 @@ $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
 mvn -o -pl 05-llm-client -am test
 ```
 
-本阶段第 1 课和第 3 课**全部测试都不需要密钥和网络**，使用 `FakeModelClient` 注入预设结果。这是刻意的设计：如果测试必须有真实密钥才能跑，业务逻辑就只能靠手工点。
+除第 2 课的 3 个真实调用测试外，本阶段**全部测试都不需要密钥和网络**，使用 `FakeModelClient` 注入预设结果。这是刻意的设计：如果测试必须有真实密钥才能跑，业务逻辑就只能靠手工点。
 
 第 3 课尤其明显 —— 校验规则是纯逻辑，用 Fake 客户端可以精确构造「模型输出了不存在的设备 id」这类场景，
 而这在真实模型上很难稳定复现。
@@ -87,7 +94,10 @@ src/test/java/learn/agent/llm/lesson01/
 - `finishReason` 决定响应能否使用，`content` 不是第一个该读的字段；
 - 「能否重试」由错误分类决定，不靠解析错误文本猜；
 - **结构正确不代表业务合法** —— 第 3 课正式处理这一条，它是从「聊天机器人」转向「Agent 应用」的分界；
-- 模型输出只生成**预览**，不直接修改数据。真正执行需要用户确认，属于下一阶段。
+- 模型输出只生成**预览**，不直接修改数据。真正执行需要用户确认，属于下一阶段；
+- 模型「能调」不等于程序「该执行」—— 副作用等级由**程序侧枚举**声明，不写进 prompt，模型无法覆盖；
+- 工具失败是**返回值**，不是异常。它要回传给模型，让模型自己换参数重试；
+- 循环的结局是**枚举**（`StopReason`），不是一句话。调用方靠字段判断，不靠正则匹配模型说的话。
 
 ## 第 3 课的四层链路
 
@@ -101,3 +111,19 @@ src/test/java/learn/agent/llm/lesson01/
 ```
 
 分层的判断标准只有一条：**这条规则需要查运行时状态吗**。不需要的放 Schema 层，需要的放业务层。
+
+## 第 5 课的四道工具边界
+
+```text
+模型请求一次工具调用
+  ↓ 1. prepare        查白名单 + 解析参数 + 校验      零副作用
+  ↓ 2. 破坏性闸门      不可逆操作不执行，回传等待确认   排在缓存之前
+  ↓ 3. 幂等缓存        同样的调用命中缓存，不重复执行   键不含 tool_call_id
+  ↓ 4. 超时执行        唯一真正调 handler 的地方       结束等待，不保证结束执行
+写入这一轮的 RoundTrace
+```
+
+顺序是设计的一部分：破坏性闸门在幂等缓存**之前**，因为「这次没有执行」不需要缓存。
+
+每轮的处置写进 trace，六个 outcome 标签是完整分类：`rejected`、`blocked_destructive`、
+`deduplicated`、`executed`、`failed`、`protocol_violation`。测试断言标签，不断言文案。

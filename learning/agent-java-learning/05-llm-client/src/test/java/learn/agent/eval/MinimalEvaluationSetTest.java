@@ -16,6 +16,17 @@ import learn.agent.llm.lesson04.ToolExecutionResult;
 import learn.agent.llm.lesson04.ToolHandler;
 import learn.agent.llm.lesson04.ToolRegistry;
 
+import learn.agent.llm.lesson05.AgentLoop;
+import learn.agent.llm.lesson05.AgentTrace;
+import learn.agent.llm.lesson05.StopReason;
+import learn.agent.llm.lesson05.TraceIdGenerator;
+
+import learn.agent.llm.lesson05.AgentLoop;
+import learn.agent.llm.lesson05.AgentTrace;
+import learn.agent.llm.lesson05.RoundTrace;
+import learn.agent.llm.lesson05.StopReason;
+import learn.agent.llm.lesson05.TraceIdGenerator;
+
 import learn.agent.llm.lesson01.FakeModelClient;
 import learn.agent.llm.lesson01.FinishReason;
 import learn.agent.llm.lesson01.TokenUsage;
@@ -35,11 +46,12 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 最小评估集：跨第 3 课（Structured Output）和第 4 课（Tool Calling）的回归基线。
+ * 最小评估集：跨第 3 课（Structured Output）、第 4 课（Tool Calling）
+ * 和第 5 课（Agent Loop）的回归基线。
  *
- * <p>贯穿项要求「拿到第一个 Structured Output 就建」，本套件把两条链路的
+ * <p>贯穿项要求「拿到第一个 Structured Output 就建」，本套件把各条链路的
  * 典型输入与期望结果做成一张可运行的表。每次改动业务代码后跑一遍，
- * 用结论判断改动是变好还是变坏。</p>
+ * 用结论判断改动是变好还是变坏。每进入一个新阶段往里加 3-5 行覆盖新能力。</p>
  *
  * <p>为什么用 JUnit 而不是一张静态表格：静态表只能被人脑对照，改完代码
  * 没有强制抓手。这套件把每一行变成可执行断言，结论不再是口头判断，而是
@@ -100,13 +112,13 @@ public class MinimalEvaluationSetTest {
     }
 
     /**
-     * 规则：7 条基线用例全部通过，任何一条挂了都要指出是哪一条。
+     * 规则：11 条基线用例全部通过，任何一条挂了都要指出是哪一条。
      *
-     * <p>这两条链路后面还会反复改（加权限、加日志、换实现）。没有基线，
+     * <p>这几条链路后面还会反复改（加权限、加日志、换实现）。没有基线，
      * 改完只能靠人工看一遍，改错误码或改 TOOL 回传前缀这类小改动很容易漏掉。</p>
      */
     @Test
-    @DisplayName("最小评估集：Structured Output + Tool Calling 回归基线")
+    @DisplayName("最小评估集：Structured Output + Tool Calling + Agent Loop 回归基线")
     public void entireEvaluationSetMustPass() throws Exception {
         List<Row> rows = rows();
         List<String> failures = new ArrayList<String>();
@@ -252,6 +264,98 @@ public class MinimalEvaluationSetTest {
                             new ToolContext("eval", scene()), 3).run("你是助手", "看看");
                     if (!answer.contains("最大工具调用轮数")) {
                         return "达到上限应停止，实际：" + answer;
+                    }
+                    return null;
+                }));
+
+        // ---------- 第 5 课：Agent Loop ----------
+        rows.add(new Row("停止原因是枚举而非文本", "stop=final_answer",
+                () -> {
+                    AtomicInteger listCalls = new AtomicInteger();
+                    FakeModelClient fake = new FakeModelClient();
+                    fake.enqueueResponse(
+                            ToolCallCodec.encode(new ToolCall("c1", "list_devices", "{}")),
+                            FinishReason.TOOL_CALLS, new TokenUsage(120, 30));
+                    fake.enqueueResponse("当前有 3 台设备。", FinishReason.STOP, new TokenUsage(150, 20));
+                    AgentTrace trace = new AgentLoop("m", fake, registryWith(listCalls),
+                            new ToolContext("eval", scene()), 5, 1000L,
+                            TraceIdGenerator.fixed("eval-1")).run("你是助手", "有哪些设备？");
+                    if (trace.getStopReason() != StopReason.FINAL_ANSWER) {
+                        return "期望 FINAL_ANSWER，实际：" + trace.getStopReason();
+                    }
+                    if (trace.getRoundCount() != 2) {
+                        return "期望 2 轮，实际：" + trace.getRoundCount();
+                    }
+                    if (!"eval-1".equals(trace.getTraceId())) {
+                        return "trace id 应可注入，实际：" + trace.getTraceId();
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("轮数耗尽可被程序识别", "stop=max_rounds",
+                () -> {
+                    FakeModelClient fake = new FakeModelClient();
+                    for (int i = 0; i < 3; i++) {
+                        fake.enqueueResponse(
+                                ToolCallCodec.encode(new ToolCall("loop" + i, "list_devices", "{}")),
+                                FinishReason.TOOL_CALLS, new TokenUsage(100, 20));
+                    }
+                    AgentTrace trace = new AgentLoop("m", fake, registryWith(new AtomicInteger()),
+                            new ToolContext("eval", scene()), 3, 1000L,
+                            TraceIdGenerator.fixed("eval-2")).run("你是助手", "看看");
+                    if (trace.getStopReason() != StopReason.MAX_ROUNDS) {
+                        return "期望 MAX_ROUNDS，实际：" + trace.getStopReason();
+                    }
+                    if (!trace.getStopReason().isAbnormal()) {
+                        return "轮数耗尽属于异常收尾";
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("重复调用只执行一次", "outcome=deduplicated",
+                () -> {
+                    AtomicInteger listCalls = new AtomicInteger();
+                    FakeModelClient fake = new FakeModelClient();
+                    // 同名同参数连发两次，第二次应命中幂等缓存。
+                    fake.enqueueResponse(
+                            ToolCallCodec.encode(new ToolCall("c1", "list_devices", "{}")),
+                            FinishReason.TOOL_CALLS, new TokenUsage(120, 30));
+                    fake.enqueueResponse(
+                            ToolCallCodec.encode(new ToolCall("c2", "list_devices", "{}")),
+                            FinishReason.TOOL_CALLS, new TokenUsage(140, 30));
+                    fake.enqueueResponse("当前有 3 台设备。", FinishReason.STOP, new TokenUsage(160, 20));
+                    AgentTrace trace = new AgentLoop("m", fake, registryWith(listCalls),
+                            new ToolContext("eval", scene()), 5, 1000L,
+                            TraceIdGenerator.fixed("eval-3")).run("你是助手", "有哪些设备？");
+                    if (listCalls.get() != 1) {
+                        return "handler 应只真正执行一次，实际：" + listCalls.get();
+                    }
+                    if (!"deduplicated".equals(trace.getRounds().get(1).getToolOutcome())) {
+                        return "第 2 轮应命中缓存，实际：" + trace.getRounds().get(1).getToolOutcome();
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("每轮 trace 能归因", "含工具名与 tool_call_id",
+                () -> {
+                    AtomicInteger listCalls = new AtomicInteger();
+                    FakeModelClient fake = new FakeModelClient();
+                    fake.enqueueResponse(
+                            ToolCallCodec.encode(new ToolCall("call-x", "list_devices", "{}")),
+                            FinishReason.TOOL_CALLS, new TokenUsage(120, 30));
+                    fake.enqueueResponse("好了。", FinishReason.STOP, new TokenUsage(150, 20));
+                    AgentTrace trace = new AgentLoop("m", fake, registryWith(listCalls),
+                            new ToolContext("eval", scene()), 5, 1000L,
+                            TraceIdGenerator.fixed("eval-4")).run("你是助手", "有哪些设备？");
+                    RoundTrace first = trace.getRounds().get(0);
+                    if (!"list_devices".equals(first.getToolName())) {
+                        return "第 1 轮应记下工具名，实际：" + first.getToolName();
+                    }
+                    if (!"call-x".equals(first.getToolCallId())) {
+                        return "应原样记下 tool_call_id，实际：" + first.getToolCallId();
+                    }
+                    if (trace.getTotalTokens() != 320) {
+                        return "token 应累加为 320，实际：" + trace.getTotalTokens();
                     }
                     return null;
                 }));

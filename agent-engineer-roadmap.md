@@ -148,7 +148,7 @@ Controller/Service/Repository 分层、DTO、`@Valid` 参数校验、`@RestContr
 ## 阶段 6：Structured Output 与 Tool Calling
 
 > **状态：主体已交付（2026-08-28，作为 `05-llm-client/lesson03` + `lesson04`），最小评估集已建（`MinimalEvaluationSetTest`，7 行基线）**
-> 剩余欠账：Trace 与结构化日志（阶段 7 手写 Loop 时补）。
+> 剩余欠账：无。Trace 与结构化日志已在阶段 7（`lesson05`）补齐。
 > 路线偏差：两课都作为阶段 5 的子课（`05-llm-client` 内），与计划档案「路线偏差说明」一致。
 
 这是从「聊天机器人」转到「Agent 应用」的关键阶段。
@@ -173,6 +173,9 @@ Tool Calling 部分参照 `code/chapters/ch02/`（`tool_registry`、Zod 输入�
 
 ## 阶段 7：手写 Agent Loop 与工具边界
 
+> **状态：已交付（2026-08-28，作为 `05-llm-client/lesson05`），贯穿项「Trace 与结构化日志」同步补齐**
+> 七项要求全部落地；`run` 返回 `AgentTrace` 而不是字符串，停止原因是枚举 `StopReason`。15 个测试。
+
 先不用 LangGraph，手写最小循环，理解框架到底替你做了什么：
 
 ```text
@@ -187,15 +190,27 @@ for round in 1..N:
 return 超过最大轮次
 ```
 
-必须实现：
+必须实现（全部已交付，见下表对应类）：
 
-- 最大轮次；
-- 工具白名单；
-- 工具参数校验；
-- 工具超时；
-- 工具异常回传；
-- 重复 tool call 的幂等；
-- 每轮日志和 trace id。
+| 要求 | 实现 | 是否阶段 6 已有 |
+|---|---|---|
+| 最大轮次 | `AgentLoop` 的 `maxRounds` + `StopReason.MAX_ROUNDS` | 已有，本阶段把结局变成枚举 |
+| 工具白名单 | `ToolRegistry.prepare` → `tool_not_found` | 已有 |
+| 工具参数校验 | `ToolArgumentValidator` | 已有 |
+| **工具超时** | `ToolTimeoutGuard` → `tool_timeout` | **本阶段新增** |
+| 工具异常回传 | `ToolRegistry.invoke` → `tool_execution_error` | 已有 |
+| **重复 tool call 幂等** | `ToolCallMemo`（键 = 工具名 + 原始参数串） | **本阶段新增** |
+| **每轮日志与 trace id** | `AgentTrace` / `RoundTrace` / `TraceIdGenerator` | **本阶段新增** |
+
+**代码产出：**`05-llm-client/lesson05` 七个类 + `lessons/05-agent-loop.md`；15 个离线测试。
+
+三个真正新增的点：
+
+1. **超时结束的是「等待」，不是「执行」。**`future.cancel(true)` 只发中断信号，不理中断标志的工具会继续跑完，所以错误文案是「已放弃等待」。这道闸门是最后一道防线，工具自己也该有超时。
+2. **幂等键故意不含 `tool_call_id`。**那个 id 每次调用都不同，算进键里就永远命中不了。失败结果不缓存，否则一次偶发超时会在整个会话里变成永久失败。
+3. **`run` 返回 `AgentTrace` 而不是 `String`。**阶段 6 的 `String run(...)` 答不出「为什么停、跑了几轮、花了多少 token」——这些信息埋在给人看的散文里，调用方只能正则匹配。
+
+**四条边界的顺序**（`AgentLoop.executeWithBoundaries`）：prepare（白名单+解析+校验，零副作用）→ 破坏性闸门 → 幂等缓存 → 限时执行。破坏性闸门在缓存之前，因为「没执行」这件事不需要缓存。
 
 **主教材：**`code/chapters/ch01/`（最小循环）和 `ch02/`（工具注册表、workspace 安全路径）。先自己写一遍，再对照章节实现找差异，最后跑 `npm run test:ch01`、`npm run test:ch02` 看测试在证明哪条规则。
 
