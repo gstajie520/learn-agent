@@ -115,7 +115,7 @@ public class ChatRequestTest {
         assertTrue(printed.contains("messageCount=1"));
     }
 
-    /** {@link ChatMessage} 拒绝 {@code null} 但允许空字符串：空串是「模型没说话」这个真实状态，{@code null} 是我们的代码漏了一步，混在一起下游就分不清，而且要等 JSON 序列化时才在离现场很远的地方爆出来。 */
+    /** {@link ChatMessage} 拒绝 {@code null} 但允许空字符串：空串是「模型没说话」这个真实状态，{@code null} 是代码漏了一步，混在一起下游就分不清，还要等序列化时才在离现场很远处爆出来。 */
     @Test
     public void shouldRejectNullRoleOrContentInMessage() {
         // Act + Assert：角色和正文都不允许为 null。

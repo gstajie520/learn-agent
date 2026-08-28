@@ -78,7 +78,7 @@ public class ChatResponseTest {
         assertTrue(exception.getMessage().contains("usage"));
     }
 
-    /** {@code requestId} 缺失兜底成 {@code "unknown"} 而不是抛异常或留 null：第三方网关不返回这个头是常态，不该为一个日志字段把成功调用判死，而 null 渗进去可能让排障字段反过来把主流程打挂。 */
+    /** {@code requestId} 缺失兜底成 {@code "unknown"}：第三方网关不返回这个头是常态，不该为一个日志字段把成功调用判死，留 null 又可能让排障字段反过来打挂主流程。 */
     @Test
     public void shouldFallBackToUnknownRequestId() {
         // Arrange：部分兼容网关不返回请求 id。
@@ -92,7 +92,7 @@ public class ChatResponseTest {
         assertEquals("unknown", response.getRequestId());
     }
 
-    /** 限流、5xx、超时标记为可重试，因为失败原因和请求内容无关：不重试的话服务方一次滚动发布期间的零星 503 会原样报给用户，而高峰期偶发 429 是正常运行状态，等于白砍掉一块有效容量。 */
+    /** 限流、5xx、超时可重试，失败原因和请求内容无关：不重试的话，服务方一次滚动发布期间的零星 503 会原样报给用户，高峰期偶发 429 也等于白砍掉一块有效容量。 */
     @Test
     public void shouldClassifyRetryableErrors() {
         // Arrange + Act + Assert：等一会儿就可能成功的错误，标记为可重试。
@@ -101,7 +101,7 @@ public class ChatResponseTest {
         assertTrue(ModelException.ErrorType.TIMEOUT.isRetryable());
     }
 
-    /** 参数越界、密钥无效、超窗口、被安全策略拦下都是确定性失败，标记为不可重试：当成偶发故障去重试，付的是最长最贵那份输入的钱，换来的还是从第一次起就注定的错误，而监控上看着像「外部服务不稳定」。 */
+    /** 参数越界、密钥无效、超窗口、被安全拦截都是确定性失败，标记为不可重试：重试只是为注定的错误反复付输入 Token 的钱，监控上还看着像「外部服务不稳定」。 */
     @Test
     public void shouldClassifyNonRetryableErrors() {
         // Arrange + Act + Assert：输入或配置本身就是错的，重试多少次结果都一样。
@@ -111,7 +111,7 @@ public class ChatResponseTest {
         assertFalse(ModelException.ErrorType.CONTENT_FILTERED.isRetryable());
     }
 
-    /** {@code catch} 块接住的是异常不是枚举，所以 {@link ModelException} 自己就要能回答「要不要重试」：否则调用方退回到 {@code e.getMessage().contains("429")}，等服务方改掉提示语，判断就静默失效、从此不再重试。 */
+    /** {@code catch} 接住的是异常不是枚举，所以 {@link ModelException} 自己就要能回答「要不要重试」：否则调用方退回到 {@code e.getMessage().contains("429")} 这种写法，等服务方改掉提示语，判断就静默失效、从此不再重试。 */
     @Test
     public void shouldExposeRetryableFlagOnException() {
         // Arrange：业务代码拿到的是异常对象，不是枚举。
@@ -125,7 +125,7 @@ public class ChatResponseTest {
         assertFalse(authFailure.isRetryable());
     }
 
-    /** {@link TokenUsage} 分别保留输入和输出、总数算出来而非存进来：单价不同，同样 138 个 Token 全是输入和全是输出差好几倍钱，只记总数就只知道「用量涨了」，却不知道该优化提示词、裁剪历史还是收紧输出上限。 */
+    /** {@link TokenUsage} 分别保留输入和输出、总数算出来而非存进来：两者单价不同，同样 138 个 Token 全是输入和全是输出差好几倍钱，只记总数就只知道「用量涨了」，却不知道该优化提示词、裁剪历史还是收紧输出上限。 */
     @Test
     public void shouldAccumulateTokensSeparately() {
         // Arrange：输入和输出单价不同，必须分开统计。

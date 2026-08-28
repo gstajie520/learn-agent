@@ -103,7 +103,7 @@ public class SceneSummaryServiceTest {
         assertEquals(1, fake.getCallCount());
     }
 
-    /** 限流要在服务内部自动重试，业务方只调用一次：把 429 当致命错误抛给用户，高峰期会出现大量本可自动恢复的失败；让每个调用方自己写重试，改退避策略就要改几十个地方。 */
+    /** 限流在服务内部自动重试，业务方只调用一次：把 429 当致命错误抛出，高峰期会有大量本可自愈的失败；让调用方各写重试，改退避策略就要改几十处。 */
     @Test
     public void shouldRetryRateLimitAndSucceed() {
         // Arrange：前两次限流（HTTP 429），第三次正常返回。
@@ -124,7 +124,7 @@ public class SceneSummaryServiceTest {
         assertEquals(102, service.getTotalTokens());
     }
 
-    /** 鉴权失败第一次就抛出，不消耗剩余重试次数：断言 {@code getCallCount() == 1} 验的不是「失败了」而是「失败得足够快」，一律重试的话密钥配错会让用户等 3 倍时间、日志出现 3 倍噪音。 */
+    /** 鉴权失败第一次就抛出，不消耗剩余重试次数：{@code getCallCount() == 1} 验的不是「失败了」而是「失败得足够快」，一律重试会让用户等 3 倍时间、日志出现 3 倍噪音。 */
     @Test
     public void shouldNotRetryAuthenticationError() {
         // Arrange：密钥无效。即使允许重试 3 次，也不该浪费在这上面。
@@ -171,7 +171,7 @@ public class SceneSummaryServiceTest {
         assertTrue(exception.getMessage().contains("上游 502"));
     }
 
-    /** Token 跨多次调用累加且输入输出分开统计：输入会随对话历史线性增长（第 10 轮要把前 9 轮全部重发），只记总数的话月底费用超支也说不清是调用变多了、对话变长了还是重试放大了用量。 */
+    /** Token 跨多次调用累加、输入输出分开统计：输入随对话历史线性增长（第 10 轮要把前 9 轮全部重发），只记总数就说不清费用超支是调用变多、对话变长还是重试放大。 */
     @Test
     public void shouldAccumulateTokensAcrossCalls() {
         // Arrange：两次成功调用，Token 消耗不同。
@@ -190,7 +190,7 @@ public class SceneSummaryServiceTest {
         assertEquals(165, service.getTotalTokens());
     }
 
-    /** 空白输入在本地挡住，一次请求都不发：空输入送过去模型不会报错，它会自由发挥编一段总结，你拿到的是看起来正常、实际毫无根据的假数据，而监控上这次调用显示为成功。 */
+    /** 空白输入在本地挡住，一次请求都不发：空输入送过去模型不报错，它会自由发挥编一段总结，你拿到看起来正常、实际毫无根据的假数据，而监控上显示为成功。 */
     @Test
     public void shouldRejectBlankSceneDescriptionWithoutCallingModel() {
         // Arrange：空白输入。
