@@ -80,7 +80,7 @@ Agent 开发工程师不是只会调用一个大模型 API，也不是只会背 
 | 3 | Spring Boot 后端基础 | 2 | Java | — |
 | 4 | Redis：状态、缓存、幂等 | 2 | Java | — |
 | 5 | LLM 调用基础 | 2 | **Python 先**，Java 复写 | ch01 的模型客户端部分 |
-| 6 | Structured Output 与 Tool Calling | 2 | Python + Java | ch02（Structured Output 需自写） |
+| 6 | Structured Output 与 Tool Calling | 2 | Python + Java | ch02（Structured Output 需自写）；**已交付 lesson03+04** |
 | 7 | 手写 Agent Loop 与工具边界 | 2 | Python/TypeScript | ch01、ch02 |
 | 8 | 权限、Hook 与安全边界 | 2 | Python/TypeScript | ch03、ch04 |
 | 9 | 上下文工程：计划、压缩、记忆 | 3 | Python/TypeScript | ch05、ch06、ch08、ch09、ch10 |
@@ -98,7 +98,7 @@ Agent 开发工程师不是只会调用一个大模型 API，也不是只会背 
 
 以下三项**从阶段 6 开始就要动手，每个阶段增量维护**，不是收尾工作：
 
-- **最小评估集**：拿到第一个 Structured Output 就建。输入、期望工具、期望结构、期望业务结果各一列。每个新阶段往里加 3-5 个用例，改完代码先跑评估。没有基线的话，中间十几个阶段的所有改动都无法判断是变好还是变坏。
+- **最小评估集**：已建（`05-llm-client` 下 `MinimalEvaluationSetTest`，7 行）。拿到第一个 Structured Output 就该建，现在已建立。每个新阶段往里加 3-5 个用例，改完代码先跑评估。没有基线的话，中间十几个阶段的所有改动都无法判断是变好还是变坏。
 - **Trace 与结构化日志**：从阶段 7 手写 Loop 起就打 trace id、轮次、工具名、耗时、token。阶段 16 只是把它们汇总成报表，不是从零开始加埋点。
 - **面试表达**：每个阶段结束回答 3-5 道本阶段常见面试题，按「业务含义 → 实现方式 → 一个生产风险」组织。
 
@@ -147,6 +147,10 @@ Controller/Service/Repository 分层、DTO、`@Valid` 参数校验、`@RestContr
 
 ## 阶段 6：Structured Output 与 Tool Calling
 
+> **状态：主体已交付（2026-08-28，作为 `05-llm-client/lesson03` + `lesson04`），最小评估集已建（`MinimalEvaluationSetTest`，7 行基线）**
+> 剩余欠账：Trace 与结构化日志（阶段 7 手写 Loop 时补）。
+> 路线偏差：两课都作为阶段 5 的子课（`05-llm-client` 内），与计划档案「路线偏差说明」一致。
+
 这是从「聊天机器人」转到「Agent 应用」的关键阶段。
 
 学习顺序：
@@ -161,9 +165,11 @@ Tool Calling 部分参照 `code/chapters/ch02/`（`tool_registry`、Zod 输入�
 
 **核心原则：**结构正确不代表业务合法。模型生成的 `{"action":"delete"}` 即使 JSON 正确，也必须经过权限、对象存在性和危险操作校验。
 
-**代码产出：**自然语言「在北侧生成雷达」转换成 `SceneOperation`，经过 Schema 校验和业务校验后只生成预览，不直接修改真实数据。
+**代码产出（lesson03）：**自然语言「在北侧生成雷达」转换成 `SceneOperation`，经过 Schema 校验和业务校验后只生成预览，不直接修改真实数据。52 个测试。
 
-**本阶段必须建立最小评估集**，见「贯穿项」。
+**代码产出（lesson04）：**最小工具调用闭环 —— `prepare`/`invoke` 分离、破坏性工具人工确认、结果以 TOOL 角色回传并带原始 `tool_call_id`。17 个测试。
+
+**本阶段必须建立最小评估集**，见「贯穿项」。已建立：`MinimalEvaluationSetTest`，7 行跨 lesson03/04 回归基线。
 
 ## 阶段 7：手写 Agent Loop 与工具边界
 
@@ -459,7 +465,8 @@ Set-Location '.\python'
 已完成或正在完成：
 
 - 阶段 1-3：Java 状态机、线程池、Spring Boot API（DONE）；
-- 阶段 4：Redis 幂等、真实客户端、Hash 状态、Spring 条件更新、缓存基础（收尾中）。
+- 阶段 4：Redis 幂等、真实客户端、Hash 状态、Spring 条件更新、缓存基础（收尾中）；
+- 阶段 5：LLM 调用 + 结构化输出 + Tool Calling（DONE，`05-llm-client` lesson01-04，149 测试）；阶段 6 主体随之完成。
 
 接下来不再继续无限扩展 Redis。执行顺序：
 

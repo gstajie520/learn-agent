@@ -24,8 +24,8 @@
 | 2 | Java 并发与线程池 | — | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | — | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
 | 4 | Redis：状态、缓存、幂等 | — | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
-| 5 | LLM 调用基础 | ch01 | IN_PROGRESS | 第 1、2 课完成：`ModelClient` 接口、Fake 客户端、真实 HTTP 调用、超时与指数退避；122 个测试通过（3 个真实调用待配密钥） |
-| 6 | Structured Output 与 Tool Calling | ch02 | IN_PROGRESS | Structured Output 完成（作为阶段 5 第 3 课交付）：解析 + Schema 校验 + 业务校验 + 预览四步链路，52 个测试通过；Tool Calling 未开始 |
+| 5 | LLM 调用基础 | ch01 | DONE | 第 1、2 课完成：`ModelClient` 接口、Fake 客户端、真实 HTTP 调用、超时与指数退避；132 个测试通过（3 个真实调用待配密钥） |
+| 6 | Structured Output 与 Tool Calling | ch02 | IN_PROGRESS | Structured Output（作为阶段 5 第 3 课交付）52 个测试；Tool Calling 完成（作为阶段 5 第 4 课交付）：`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传，17 个测试；阶段 6 主体完成 |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | NOT_STARTED |  |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | NOT_STARTED |  |
 | 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | NOT_STARTED |  |
@@ -43,7 +43,7 @@
 
 | 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
-| 最小评估集 | 6 | **逾期未做** | 阶段 5 第 3 课已产出 Structured Output，按规则此项现在就该建，不能再推 |
+| 最小评估集 | 6 | **完成** | 已建 `learn.agent.eval.MinimalEvaluationSetTest`：跨 lesson03/04 的 7 行回归基线，改完 `mvn -o test` 即跑 |
 | Trace 与结构化日志 | 7 | NOT_STARTED | 待创建。当前 `SceneOperationService` 只累加 token，没有 trace id |
 | 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 三课的文档均已含「常见面试题」 |
 
@@ -117,23 +117,22 @@
 
 ## 下一阶段
 
-- 阶段：6 剩余部分：Tool Calling
-- 主题：工具定义（名称、描述、参数 Schema）、模型返回 `tool_calls`、程序执行工具、结果以 `TOOL` 角色回传、`tool_call_id` 配对
-- 进入条件：能说清「结构正确不代表业务合法」，并能指出第 3 课两层校验各自依赖什么
-- 教材：`python/ch02_agent`，重点参照 `core/tools.py` 的 `prepare`/`invoke` 分离
-- 预告产出：最小工具注册表 + 一次完整的「模型请求工具 → 程序执行 → 结果回传」往返
-- 关键衔接：第 3 课的 `SceneOperation` 已经是「模型输出的结构化数据」，Tool Calling 只是换成由模型主动发起；两层校验规则可直接复用到工具参数上
+- 阶段：主体已完成，贯穿项最小评估集已建。**下一主任务：阶段 7 手写 Agent Loop**
+- 主题（本期已交付 Tool Calling）：工具定义（名称、描述、参数 Schema）、模型返回 `tool_calls`、程序执行工具、结果以 `TOOL` 角色回传、`tool_call_id` 配对
+- 产出（已完成）：`lessons/04-tool-calling.md` + `lesson04` 包。最小工具注册表 + 一次完整「模型请求工具 → 程序执行 → 结果回传」往返，17 个测试全绿
+- 关键衔接：第 3 课的 `SceneOperation` 已经是「模型输出的结构化数据」，Tool Calling 换成由模型主动发起；两层校验规则已复用到工具参数上（`ToolArgumentValidator`）
+- 评估基线（已建）：`learn.agent.eval.MinimalEvaluationSetTest`，7 行回归基线，跨 lesson03/04
+- 下一条主任务：**阶段 7 手写 Agent Loop**（并把 Trace/结构化日志补上，这也是贯穿项欠账）
 
 ### 路线偏差说明（需要你确认）
 
-- 路线文档把 Structured Output 列在**阶段 6**（对应 ch02），但我把它实现为**阶段 5 第 3 课**（`05-llm-client/lesson03`）
-- 理由：它直接复用第 1 课的 `ModelClient` 和 `FakeModelClient`，放在同模块可让「换实现不改业务」这条主线连贯；另起模块要重复装配
-- 影响：阶段 5 和阶段 6 的实际边界变成「阶段 5 = 调用 + 结构化输出，阶段 6 = Tool Calling」。如果你希望严格按路线分模块，我可以把 lesson03 迁到独立的 `06-structured-output`
+- 路线文档把 Structured Output 与 Tool Calling 都列在**阶段 6**（对应 ch02），我把两课都实现为**阶段 5 的子课**（`05-llm-client/lesson03`、`lesson04`）
+- 理由：两课都直接复用第 1 课的 `ModelClient`/`FakeModelClient`，放在同模块可让「换实现不改业务」这条主线连贯；另起模块要重复装配
+- 影响：阶段 5 = 调用 + 结构化输出 + Tool Calling，阶段 6 主体即告完成。如果你希望严格按路线分模块，我可以把 lesson03、lesson04 迁到独立的 `06-structured-output` / `07-tool-calling`
 
 ### 贯穿项欠账（必须先补）
 
-- **最小评估集**：路线要求「拿到第一个 Structured Output 就建」。第 3 课已产出 Structured Output，所以这一项**现在就该做**，不能再推
-- 建议形态：一张表，每行是「自然语言输入 → 期望 operation → 期望校验结论」，改完代码先跑一遍
+- **最小评估集**：已建（`MinimalEvaluationSetTest`，7 行）。后续阶段需增量扩充：每进入一个新阶段，往里面加 3-5 行覆盖新能力的用例
 - **Trace 与结构化日志**：路线要求从阶段 7 手写 Loop 起打 trace id、轮次、工具名、耗时、token。当前 `SceneOperationService` 只累加 token，没有 trace id
 
 ### 阶段 5 收尾可选项
@@ -374,3 +373,27 @@
 - 处理方式：先 `git reset --mixed origin/master` 把分支指针前移（不动工作区、不丢提交），再从 `origin/master` 取回那三个纯回退文件，最后把今天的进度重新叠加到本档案的新版结构上
 - 教训：多机器/多客户端提交同一仓库时，提交前必须先 `git fetch` 并确认本地是否落后；只看 `git status` 看不出这一点，因为它只和本地 HEAD 比较
 - 遗留：`gcm-diagnose.log` 是 Git 凭据管理器的诊断日志，未提交也未加忽略规则，需要时自行删除
+
+### 2026-08-28（阶段 5 第 4 课：Tool Calling 与 prepare/invoke 分离）
+
+- 本次目标：让模型**主动决定**调用哪个工具、传什么参数，程序负责执行与把关；交付最小工具调用闭环
+- 实际完成：新增 `lesson04` 十四个主类、两个测试类（17 个测试）、`lessons/04-tool-calling.md` 文档；未改动第 1–3 课源码（保持「第 1 课一行未改」）
+- 核心设计一：`prepare`/`invoke` 分离 —— `prepare` 查工具、解析参数、跑校验（零副作用），`invoke` 是全类唯一产生副作用的地方，两者之间就是人工确认的插入点
+- 核心设计二：工具失败是返回值不是异常 —— 模型是结果消费者，把「设备不存在，当前是 …」回传，模型下一轮能自己改；只有编程错误（context 为 null）和 handler 意外（NPE）才用异常
+- 核心设计三：破坏性工具不执行 —— `ToolEffect.DESTRUCTIVE` 由程序侧枚举声明，绝不交给模型判断（提示词注入能让模型自我批准删除）；只回传「等待确认」让模型转述
+- 核心设计四：结果以 TOOL 角色回传并带原始 `tool_call_id` —— 模型靠 id 配对，自己造或写错字符就会张冠李戴
+- 教学桥：`ToolCallCodec` 用 content 承载工具调用，磁盘不破坏第 1 课的消息类型；文档明确标注这是教学策略，生产走协议原生 `tool_calls` 字段，最终要删
+- 测试产出：`ToolRegistryTest` 12 个（注册校验、prepare 零副作用、四种失败、invoke 短路、异常兜底）、`ToolCallingServiceTest` 5 个（一次往返、破坏性不执行、幻觉恢复、轮数上限、截断），共 17 个全绿，全部离线
+- 端到端验证：`ToolCallingDemo` 五个场景按预期输出，含「破坏性工具等待确认」和「轮数上限打断死循环」两个关键控制
+- 待学习者验收：口头回答第 4 课 5 道面试题，重点是「为什么 prepare 和 invoke 必须分开」和「副作用等级为什么必须在程序侧声明」
+- 下一次主任务：**补齐最小评估集**（贯穿项连续两课欠账），然后进入阶段 7 手写 Agent Loop
+
+### 2026-08-28（贯穿项：最小评估集）
+
+- 本次目标：补齐连续两课欠账的贯穿项 —— 最小评估集
+- 实现：`learn.agent.eval.MinimalEvaluationSetTest`，单一 `@Test` 逐行跑 7 个场景（3 行 Structured Output + 4 行 Tool Calling），逐行收集失败而非遇错即停
+- 姿态：不做静态表格，做成可执行断言 —— 改完代码 `mvn -o test` 直接得到「哪几行坏、坏在哪」，这才符合贯穿项「改完先跑评估」的要求
+- 覆盖：合法 create 通过、不存在的设备被拦、受保护删除被拦；一次完整工具往返、破坏性工具不执行、模型幻觉恢复、轮数上限打断
+- 验证：`mvn -o test -Dtest=MinimalEvaluationSetTest` BUILD SUCCESS；全量 llm-client 150 测试（唯一 error 仍是既有 HttpModelClientTest PKIX 网络抖动）
+- 待学习者验收：口头说明「为什么评估集用可执行断言而不是静态表格」
+- 下一次主任务：阶段 7 手写 Agent Loop，并顺手补 Trace/结构化日志
