@@ -111,7 +111,7 @@ public class ChatResponseTest {
         assertFalse(ModelException.ErrorType.CONTENT_FILTERED.isRetryable());
     }
 
-    /** {@link ModelException} 实例自己就能回答「要不要重试」，因为 {@code catch} 块接住的是异常不是枚举：否则调用方会退回到 {@code e.getMessage().contains("429")} 这种写法，等服务方把提示语改掉，判断就静默失效，不报错、只是从此不再重试。 */
+    /** {@code catch} 块接住的是异常不是枚举，所以 {@link ModelException} 自己就要能回答「要不要重试」：否则调用方退回到 {@code e.getMessage().contains("429")}，等服务方改掉提示语，判断就静默失效、从此不再重试。 */
     @Test
     public void shouldExposeRetryableFlagOnException() {
         // Arrange：业务代码拿到的是异常对象，不是枚举。
