@@ -57,14 +57,8 @@ public class ToolCallingServiceTest {
     }
 
     /**
-     * 规则：一次完整往返 —— 模型调工具，程序执行，结果回传，模型给最终答复。
-     *
-     * <p><b>为什么重要：</b>这是 Agent 的核心骨架。模型被调用两次：
-     * 第一次决定调工具，第二次拿到结果后给出答复。中间程序执行了工具，
-     * 并把结果以 TOOL 角色回传，模型才能基于真实数据回答。</p>
-     *
-     * <p><b>违反会怎样：</b>如果结果不回传，模型只能凭空编答案；
-     * 如果结果拼进用户消息而不是 TOOL 角色，模型分不清该信谁。</p>
+     * 模型被调用两次：第一次决定调工具，第二次拿到 TOOL 角色回传的结果后给出答复。
+     * 这是 Agent 的核心骨架，结果必须以 TOOL 角色回传，模型才分得清哪部分是真实数据。
      */
     @Test
     public void shouldCompleteFullRoundTrip() {
@@ -85,12 +79,8 @@ public class ToolCallingServiceTest {
     }
 
     /**
-     * 规则：破坏性工具不执行，只回传「等待确认」。
-     *
-     * <p><b>为什么重要：</b>这是「模型能调」和「程序该执行」的分界点。
-     * 删除不可逆，模型没有权限自己触发，只能提出请求，最终决定权在程序。</p>
-     *
-     * <p><b>违反会怎样：</b>一句自然语言就能删掉数据，绕过所有审批。</p>
+     * 破坏性工具不执行，只回传「等待确认」——「模型能调」和「程序该执行」的分界点。
+     * 否则一句自然语言就能删掉数据。
      */
     @Test
     public void shouldNotExecuteDestructiveToolWithoutConfirmation() {
@@ -111,10 +101,7 @@ public class ToolCallingServiceTest {
     }
 
     /**
-     * 规则：模型幻觉工具名时，错误回传后模型改口。
-     *
-     * <p><b>为什么重要：</b>模型编工具名是预期内事件。把「工具不存在」回传，
-     * 模型下一轮就能改口，而不是让循环崩掉。</p>
+     * 模型编工具名是预期内事件：把「工具不存在」回传，模型下一轮就能改口，循环不崩。
      */
     @Test
     public void shouldRecoverFromUnknownTool() {
@@ -134,10 +121,7 @@ public class ToolCallingServiceTest {
     }
 
     /**
-     * 规则：轮数上限打断死循环。
-     *
-     * <p><b>为什么重要：</b>模型可能一直调工具不给最终答复，maxToolRounds
-     * 是防死循环烧钱的保险丝。没有它，一个坏模型会无限循环、无限计费。</p>
+     * maxToolRounds 是保险丝：模型可能一直调工具不给答复，没有上限就是无限循环、无限计费。
      */
     @Test
     public void shouldStopAtMaxRounds() {
@@ -158,10 +142,7 @@ public class ToolCallingServiceTest {
     }
 
     /**
-     * 规则：模型输出被截断时，如实告知而不是继续循环。
-     *
-     * <p><b>为什么重要：</b>截断意味着既没有完整答复也没有工具调用，
-     * 继续循环只会重复同样的失败。直接终止并告知，比假装成功诚实。</p>
+     * 截断意味着既没有完整答复也没有工具调用，继续循环只会重复同样的失败，所以如实告知。
      */
     @Test
     public void shouldReportTruncation() {

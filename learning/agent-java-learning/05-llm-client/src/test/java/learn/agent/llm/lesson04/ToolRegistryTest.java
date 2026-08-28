@@ -57,16 +57,7 @@ public class ToolRegistryTest {
         return new ToolContext("test-user", new SceneSnapshot(20, 20, 5, devices));
     }
 
-    /**
-     * 规则：注册时校验工具名，非法名字在启动期就拒绝。
-     *
-     * <p><b>为什么重要：</b>工具名会被拼进发给模型的 JSON，也会被模型原样回传。
-     * 允许空格或中文，出问题时你分不清是模型抄错了还是自己写错了。
-     * 启动期就崩，比模型调用时才崩好排查得多。</p>
-     *
-     * <p><b>违反会怎样：</b>名字带空格或特殊字符，模型回传时可能被协议层
-     * 转义或截断，导致「注册了却永远匹配不上」的诡异 bug。</p>
-     */
+    /** 工具名非法（这里带空格）在注册期就抛异常，而不是等模型调用时才发现。 */
     @Test
     public void shouldRejectInvalidToolNameAtRegistration() {
         ToolRegistry registry = new ToolRegistry();
@@ -76,12 +67,7 @@ public class ToolRegistryTest {
                         new RecordingHandler())));
     }
 
-    /**
-     * 规则：重复注册同名工具被拒绝，而不是静默覆盖。
-     *
-     * <p><b>为什么重要：</b>静默覆盖是最难查的 bug：两处注册同名工具，
-     * 行为取决于类加载顺序，测试环境和生产环境可能不一样。</p>
-     */
+    /** 同名工具重复注册被拒绝：静默覆盖会让行为取决于类加载顺序。 */
     @Test
     public void shouldRejectDuplicateRegistration() {
         ToolRegistry registry = registryWithListTool();
@@ -91,12 +77,7 @@ public class ToolRegistryTest {
                         new RecordingHandler())));
     }
 
-    /**
-     * 规则：{@code prepare} 对不存在的工具名返回 {@code tool_not_found}，不抛异常。
-     *
-     * <p><b>为什么重要：</b>模型幻觉出工具名是预期内事件。把它变成一条
-     * 能回传给模型的错误，模型下一轮就能改口；抛异常则会让整个循环崩掉。</p>
-     */
+    /** 未注册的工具名返回 {@code tool_not_found} 而不抛异常：模型幻觉是预期内事件，要能回传给它改口。 */
     @Test
     public void shouldReturnToolNotFoundForUnknownTool() {
         ToolRegistry registry = registryWithListTool();
@@ -108,12 +89,7 @@ public class ToolRegistryTest {
         assertNull(prepared.getDefinition());
     }
 
-    /**
-     * 规则：{@code prepare} 对非法 JSON 参数返回 {@code invalid_arguments_json}。
-     *
-     * <p><b>为什么重要：</b>协议里 arguments 是「装着 JSON 的字符串」，
-     * 模型输出不合法 JSON 是常态。解析失败必须变成返回值，而不是异常。</p>
-     */
+    /** arguments 不是合法 JSON 时返回 {@code invalid_arguments_json}。 */
     @Test
     public void shouldReturnInvalidJsonForMalformedArguments() {
         ToolRegistry registry = registryWithListTool();
@@ -124,12 +100,7 @@ public class ToolRegistryTest {
         assertEquals("invalid_arguments_json", prepared.getError().getErrorCode());
     }
 
-    /**
-     * 规则：{@code prepare} 对非对象参数返回 {@code arguments_not_object}。
-     *
-     * <p><b>为什么重要：</b>合法 JSON 不一定是对象。数组 {@code [1,2]} 或
-     * 字符串 {@code "abc"} 都能解析，但按字段取值会失败。必须显式区分。</p>
-     */
+    /** 合法 JSON 但不是对象（这里是数组）单独报 {@code arguments_not_object}。 */
     @Test
     public void shouldReturnNotObjectForArrayArguments() {
         ToolRegistry registry = registryWithListTool();
@@ -140,12 +111,7 @@ public class ToolRegistryTest {
         assertEquals("arguments_not_object", prepared.getError().getErrorCode());
     }
 
-    /**
-     * 规则：{@code prepare} 成功时返回 ready 态，参数已解析成 JsonNode。
-     *
-     * <p><b>为什么重要：</b>这是「检查」和「执行」分离的成果 ——
-     * 执行阶段拿到的参数已经是解析好、校验过的，不需要再检查一遍。</p>
-     */
+    /** prepare 成功后参数已是解析好的 JsonNode，执行阶段不必再解析校验一遍。 */
     @Test
     public void shouldReturnReadyForValidArguments() {
         ToolRegistry registry = registryWithListTool();
@@ -158,13 +124,7 @@ public class ToolRegistryTest {
         assertTrue(prepared.getArguments().isObject());
     }
 
-    /**
-     * 规则：{@code prepare} 零副作用 —— 不调用 handler。
-     *
-     * <p><b>为什么重要：</b>「这次调用合不合法」和「这次调用要不要执行」
-     * 是两个决定。prepare 只回答前者，绝不能顺手把工具跑了。
-     * 否则破坏性工具会在「还没确认」时就被执行。</p>
-     */
+    /** prepare 零副作用：它只回答「这次调用合不合法」，不能顺手把工具跑了。 */
     @Test
     public void shouldNotInvokeHandlerDuringPrepare() {
         RecordingHandler handler = new RecordingHandler();
@@ -177,12 +137,7 @@ public class ToolRegistryTest {
         assertEquals(0, handler.callCount, "prepare 阶段绝不能执行 handler");
     }
 
-    /**
-     * 规则：{@code invoke} 对已失败的 prepared 调用原样返回错误，不碰 handler。
-     *
-     * <p><b>为什么重要：</b>这条规则保证「参数没通过校验」和「工具执行失败」
-     * 在代码里彻底分开，也保证一个坏参数不可能因为写法疏忽而误触发真实操作。</p>
-     */
+    /** 已失败的 prepared 进 invoke 时原样返回错误，坏参数不可能误触发真实操作。 */
     @Test
     public void shouldShortCircuitFailedPreparedCall() {
         RecordingHandler handler = new RecordingHandler();
@@ -199,12 +154,7 @@ public class ToolRegistryTest {
         assertEquals(0, handler.callCount, "失败的调用绝不能执行 handler");
     }
 
-    /**
-     * 规则：{@code invoke} 对 ready 调用执行 handler 并返回其结果。
-     *
-     * <p><b>为什么重要：</b>这是全类唯一有副作用的地方，也是「执行」的唯一切入点。
-     * 所有真实操作都必须经过这里，才能被统一审计和兜底。</p>
-     */
+    /** invoke 是全类唯一执行 handler 的地方，真实操作都从这里过。 */
     @Test
     public void shouldInvokeHandlerForReadyCall() {
         RecordingHandler handler = new RecordingHandler();
@@ -220,13 +170,7 @@ public class ToolRegistryTest {
         assertEquals(1, handler.callCount);
     }
 
-    /**
-     * 规则：handler 抛异常被兜住，变成 {@code tool_execution_error}。
-     *
-     * <p><b>为什么重要：</b>工具是别人写的代码，它违约了（抛 NPE）也不能让
-     * 整个 agent 循环崩掉。兜住之后变成一条模型能读懂的失败消息，
-     * 模型有机会换个参数重试。</p>
-     */
+    /** handler 抛异常被兜成 {@code tool_execution_error}：别人写的工具违约不该让整个循环崩掉。 */
     @Test
     public void shouldWrapHandlerException() {
         ToolRegistry registry = new ToolRegistry();
@@ -246,12 +190,7 @@ public class ToolRegistryTest {
         assertEquals("tool_execution_error", result.getErrorCode());
     }
 
-    /**
-     * 规则：handler 返回 null 被识别为契约违约。
-     *
-     * <p><b>为什么重要：</b>null 结果会让上层误以为工具没执行。显式识别并
-     * 转成错误，比让 null 一路传播到回传逻辑里再炸要好排查。</p>
-     */
+    /** handler 返回 null 被识别成 {@code tool_contract_violation}，而不是让 null 往下传播。 */
     @Test
     public void shouldTreatNullHandlerResultAsContractViolation() {
         ToolRegistry registry = new ToolRegistry();
@@ -271,12 +210,7 @@ public class ToolRegistryTest {
         assertEquals("tool_contract_violation", result.getErrorCode());
     }
 
-    /**
-     * 规则：带业务校验器的工具，校验失败返回 {@code invalid_arguments}。
-     *
-     * <p><b>为什么重要：</b>JSON Schema 只能保证类型，保证不了业务约束。
-     * 校验器在 prepare 阶段拦截，失败同样变成返回值而不是异常。</p>
-     */
+    /** 业务校验器在 prepare 阶段拦截，失败报 {@code invalid_arguments}：Schema 管类型，校验器管业务。 */
     @Test
     public void shouldRunValidatorAndReturnInvalidArguments() {
         ToolRegistry registry = new ToolRegistry();
