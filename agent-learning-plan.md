@@ -24,10 +24,10 @@
 | 2 | Java 并发与线程池 | — | DONE | 6 个测试通过；已理解线程池、队列、拒绝策略、MQ ACK 和幂等边界 |
 | 3 | Spring Boot 后端基础 | — | DONE | 3 个 API 测试通过；已掌握 Controller、Service、DTO、参数校验和统一异常 |
 | 4 | Redis：状态、缓存、幂等 | — | IN_PROGRESS | 已完成 Lettuce、Redis Hash、Spring StringRedisTemplate、Lua 条件更新和缓存读写示例；待完成阶段串联验收 |
-| 5 | LLM 调用基础 | ch01 | DONE | 第 1、2 课完成：`ModelClient` 接口、Fake 客户端、真实 HTTP 调用、超时与指数退避；132 个测试通过（3 个真实调用待配密钥） |
-| 6 | Structured Output 与 Tool Calling | ch02 | IN_PROGRESS | Structured Output（作为阶段 5 第 3 课交付）52 个测试；Tool Calling 完成（作为阶段 5 第 4 课交付）：`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传，17 个测试；阶段 6 主体完成 |
-| 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | DONE | 作为阶段 5 第 5 课交付（`lesson05`）：`run` 返回 `AgentTrace` 而非字符串、工具超时、重复调用幂等、每轮 trace；15 个测试 |
-| 8 | 权限、Hook 与安全边界 | ch03、ch04 | NOT_STARTED |  |
+| 5 | LLM 调用基础 | ch01 | DONE | `05-llm-client`：`ModelClient` 接口、Fake 客户端、真实 HTTP 调用、超时与指数退避；80 个测试（3 个真实调用待配密钥） |
+| 6 | Structured Output 与 Tool Calling | ch02 | DONE | `06-structured-output` 52 个测试（两层校验、只出预览）+ `07-tool-calling` 17 个测试（`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传） |
+| 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | DONE | `08-agent-loop`：`run` 返回 `AgentTrace` 而非字符串、工具超时、重复调用幂等、每轮 trace；15 个测试 |
+| 8 | 权限、Hook 与安全边界 | ch03、ch04 | DONE | `09-agent-guardrails`：权限四态归约 36 个测试 + Hook 四事件与三道锁 33 个测试，共 69 个 |
 | 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | NOT_STARTED |  |
 | 10 | RAG 与 Skill 按需加载 | ch07 | NOT_STARTED |  |
 | 11 | API 韧性与任务系统 | ch11–ch14 | NOT_STARTED |  |
@@ -43,23 +43,20 @@
 
 | 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
-| 最小评估集 | 6 | **完成** | 已建 `learn.agent.eval.MinimalEvaluationSetTest`：跨 lesson03/04 的 7 行回归基线，改完 `mvn -o test` 即跑 |
+| 最小评估集 | 6 | **完成** | 已建 `99-minimal-eval` 模块的 `learn.agent.eval.MinimalEvaluationSetTest`：跨阶段 6/8 的回归基线，改完 `mvn -o test` 即跑 |
 | Trace 与结构化日志 | 7 | **完成** | 已建 `AgentTrace`/`RoundTrace`：trace id + 每轮工具名、`tool_call_id`、结局、耗时、token；`toLogLine()` 输出 `key=value` 可 grep |
-| 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 三课的文档均已含「常见面试题」 |
+| 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 至 8 各课的文档均已含「常见面试题」 |
 
 ## 当前阶段
 
-- 阶段：5：LLM 调用基础
-- 本阶段目标：把模型调用封装成可测试的接口，看清一次请求发了什么、返回了什么，以及失败该不该重试
-- 为什么现在学：Agent 的每一步都是模型调用；不先看清请求/响应结构和失败分类，后面的 Tool Calling 和 Agent Loop 都是在猜
-- 前置知识：阶段 1 接口与异常、阶段 2 线程池与超时、阶段 3 Spring 分层
-- 阶段状态：IN_PROGRESS
-- 开始日期：2026-08-26
-- 本阶段主任务：配置 `OPENAI_*` 三个环境变量，跑通 3 个真实调用测试，完成本阶段验收；然后进入 Tool Calling
-- 概念示例路径：`learning/agent-java-learning/05-llm-client/lessons/`
-- 完整代码路径：`learning/agent-java-learning/05-llm-client/src/main/java/learn/agent/llm/lessonNN/`
-- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`
-- 完成标准：能解释四种消息角色、Token 分项计费、`finishReason` 为什么必须先检查，以及哪些错误值得重试；有不依赖密钥的可运行测试
+- 阶段：9：上下文工程（计划、压缩、记忆）
+- 本阶段目标：让 Agent 在长任务里不失控 —— 会话计划快照、上下文压缩、记忆机制
+- 为什么现在学：阶段 5 到 8 已经能跑完一轮完整的「模型选工具 → 程序执行 → 裁决与 Hook」，但轮数一多上下文就爆。长任务失败通常不是模型不够聪明，是上下文管理失控
+- 前置知识：阶段 7 的 `AgentTrace`（压缩要先有可裁剪的结构）、阶段 8 的裁决与 Hook（压缩不能把审计记录压掉）
+- 阶段状态：NOT_STARTED
+- 主教材：`code/chapters/ch05`、`ch06`、`ch08`、`ch09`、`ch10`
+- 阶段 5 至 8 的模块与文档路径见下方「已完成内容」，每个模块自带 README 导航
+- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 234 个测试）
 
 ## 已完成内容
 
@@ -123,29 +120,20 @@
 
 ## 下一阶段
 
-- 阶段：**阶段 8 已完成**（`lesson06` 权限 + `lesson07` Hook）。**下一主任务：阶段 9 上下文工程（计划、压缩、记忆）**
-- 主题（本期已交付 Tool Calling）：工具定义（名称、描述、参数 Schema）、模型返回 `tool_calls`、程序执行工具、结果以 `TOOL` 角色回传、`tool_call_id` 配对
-- 产出（已完成）：`lessons/04-tool-calling.md` + `lesson04` 包。最小工具注册表 + 一次完整「模型请求工具 → 程序执行 → 结果回传」往返，17 个测试全绿
-- 关键衔接：第 3 课的 `SceneOperation` 已经是「模型输出的结构化数据」，Tool Calling 换成由模型主动发起；两层校验规则已复用到工具参数上（`ToolArgumentValidator`）
-- 评估基线（已建）：`learn.agent.eval.MinimalEvaluationSetTest`，7 行回归基线，跨 lesson03/04
-- 阶段 7（已完成）：`lessons/05-agent-loop.md` + `lesson05` 包。`run` 返回 `AgentTrace`、工具超时、重复调用幂等、四道有序工具边界，15 个测试
-- 阶段 8 权限半边（已完成）：`lessons/06-permissions.md` + `lesson06` 包。四态归约（`allow/deny/ask/passthrough`）、审批收敛、硬边界不可申诉、审计是闸门不是日志，36 个测试
-  - 完成标准已达成：`GuardedAgentLoop` 注入 `PermissionPolicy`，给 `delete_device` 加「必须人工确认」时 `lesson05.AgentLoop` **一行未改**，拒绝/批准两条路径都留审计记录
-  - 拆课理由：权限与 Hook 是两套独立机制，合成一课太重，按 `c6db8ce`（Redis 按主题拆课）的先例分成第 6、7 课
-  - 遗留：第 5 课的 `AgentLoop.executeWithBoundaries` 是私有方法、`AgentTrace` 的写入口是包私有，本课只能重写循环骨架 + 另写 `GuardedTrace`。已把代价写进注释，未回头给第 5 课加抽象
-- 阶段 8 Hook 半边（已完成）：`lessons/07-hooks.md` + `lesson07` 包。四个事件、`updatedInput` 三道锁、`stopHookActive` 兜住无限续写、UserPromptSubmit/Stop 异常刻意不捕获的不对称，33 个测试
-  - 顺序命题由 `shouldFireHooksInDocumentedOrder` 钉住：`user → pre → permission → handler → post → stop`。permission 夹在 pre 之后、handler 之前，Hook 能在裁决前改参数，改完仍要过裁决
-- 下一条主任务：**阶段 9 上下文工程**（`code/chapters/ch05` 起：会话计划快照、上下文压缩、记忆机制）
+- 阶段 9 上下文工程（计划、压缩、记忆），主教材 `code/chapters/ch05`、`ch06`、`ch08`、`ch09`、`ch10`
+- 前置已就位：阶段 7 的 `AgentTrace` 给出可裁剪的结构，阶段 8 的裁决与审计给出「压缩时不能丢什么」的下界
+- 阶段 5 至 8 的交付明细见「已完成内容」，模块与包路径见各模块 README
 
-### 路线偏差说明（需要你确认）
+### 已解决：阶段与模块编号对齐
 
-- 路线文档把 Structured Output 与 Tool Calling 都列在**阶段 6**（对应 ch02），我把两课都实现为**阶段 5 的子课**（`05-llm-client/lesson03`、`lesson04`）
-- 理由：两课都直接复用第 1 课的 `ModelClient`/`FakeModelClient`，放在同模块可让「换实现不改业务」这条主线连贯；另起模块要重复装配
-- 影响：阶段 5 = 调用 + 结构化输出 + Tool Calling，阶段 6 主体即告完成。如果你希望严格按路线分模块，我可以把 lesson03、lesson04 迁到独立的 `06-structured-output` / `07-tool-calling`
+- 原偏差：阶段 6、7、8 的代码都作为 `05-llm-client` 的子课（`lesson03` 到 `lesson07`）交付，一个模块装了四个阶段，目录编号和阶段编号对不上
+- 处理（2026-08-26）：拆成 `06-structured-output`、`07-tool-calling`、`08-agent-loop`、`09-agent-guardrails` 四个模块，加上跨阶段的 `99-minimal-eval`。此后**一个模块对应一个阶段**
+- 包名随之从 `lessonNN` 改为按主题命名：`client`、`structured`、`tool`、`loop`、`permission`、`hook`
+- 拆分是纯搬迁：234 个测试在拆分前后完全一致，没有改动任何逻辑
 
-### 贯穿项欠账（必须先补）
+### 贯穿项
 
-- **最小评估集**：已建（`MinimalEvaluationSetTest`，现 19 行，跨 lesson03/04/06/07）。后续阶段需增量扩充：每进入一个新阶段，往里面加 3-5 行覆盖新能力的用例
+- **最小评估集**：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，19 行跨阶段回归基线。它依赖全部上游模块，所以必须留在最末端，不能被任何模块依赖。每进入一个新阶段往里加 3-5 行
 - **Trace 与结构化日志**：已补（`AgentTrace`/`RoundTrace`，阶段 7）。做成内存里可断言的对象而不是日志行：测试能直接断言「第 2 轮调了哪个工具、为什么停」，不用 grep stdout；后续接日志框架时序列化即可，不必重新找埋点位置
 
 ### 阶段 5 收尾可选项
@@ -470,3 +458,17 @@
 - 全量：234 个测试 0 失败 0 错误（本次 3 个真实网络测试也跑过了）
 - 待学习者验收：`lessons/07-hooks.md` 的验收题，重点是第三道锁为什么用 `!=` 而不是 `equals`，以及 UserPromptSubmit/PreToolUse 的异常为什么走两条不同的路
 - 下一次主任务：**阶段 9 上下文工程**（会话计划、上下文压缩、记忆机制）
+
+### 本期记录：模块拆分 —— 目录编号与阶段编号对齐
+
+- 起因：`05-llm-client` 一个模块装了四个阶段（第 1-2 课=阶段 5、第 3-4 课=阶段 6、第 5 课=阶段 7、第 6-7 课=阶段 8）。三份文档里 `05-llm-client/lesson06` 这类路径读起来像「阶段 5 的东西」，实际是阶段 8 的，找代码要先在脑子里做一次映射
+- 为什么现在能拆：先做了前置审计 —— 依赖链是线性无环的（`01 → 03 → 04 → 05 → 06 → 07`，main 和 test 一致）；没有任何测试类 import 另一课的测试类，所以不需要 `test-jar`；两个待合并的包之间没有类名冲突
+- 拆分结果：`05-llm-client`（client 包，第 1-2 课）、`06-structured-output`（structured）、`07-tool-calling`（tool）、`08-agent-loop`（loop）、`09-agent-guardrails`（permission + hook 两包）、`99-minimal-eval`（跨阶段评估集，必须是末端模块）
+- `09` 保留两个包不再细拆：hook 依赖 permission 的裁决结果，拆开就要把裁决类型再暴露一层，而它们本来就同属阶段 8
+- `99` 依赖全部上游，所以**不能被任何模块依赖**，编号用 99 而不是 10，避免以后阶段 10 撞号
+- 全部用 `git mv` 移动，保留文件历史；合并第 1-2 课时清掉 38 个变成同包的冗余 import
+- 验证：拆分前后都是 **234 个测试**，6 个模块全绿。数目不变是这次改动「只搬位置不改逻辑」的证据
+- 顺手修的文档债：3 条 `java -cp` 命令原先只写自己模块的 `target/classes`，拆分后上游类不在路径里，跑 demo 会 `NoClassDefFoundError`；`09` 两篇文档的文件表还写着 `lesson06/`、`lesson07/`
+- 离线环境注意：`mvn -o install` 装不了（`maven-install-plugin:3.1.2` 及其几个依赖不在本地仓库），但 `mvn -o test` 可以 —— reactor 直接从兄弟模块的 `target/classes` 解析依赖，不需要先 install
+- 回滚点：拆分前打了 tag `pre-module-split`
+- 下一次主任务不变：**阶段 9 上下文工程**（会话计划、上下文压缩、记忆机制）

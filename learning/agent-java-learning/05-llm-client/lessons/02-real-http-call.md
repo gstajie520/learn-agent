@@ -342,7 +342,7 @@ mvn -o -pl 05-llm-client -am test
 ```powershell
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 mvn -o -pl 05-llm-client -am package -DskipTests
-java "-Dfile.encoding=UTF-8" -cp '05-llm-client/target/classes;05-llm-client/target/dependency/*' learn.agent.llm.lesson02.RealModelCallDemo
+java "-Dfile.encoding=UTF-8" -cp '05-llm-client/target/classes;05-llm-client/target/dependency/*' learn.agent.llm.client.RealModelCallDemo
 ```
 
 前五个场景（配置校验、请求 JSON、响应解析、错误映射、退避序列）不需要密钥。只有第六个场景需要，未配置时会明确说明如何配置。

@@ -80,7 +80,7 @@ Agent 开发工程师不是只会调用一个大模型 API，也不是只会背 
 | 3 | Spring Boot 后端基础 | 2 | Java | — |
 | 4 | Redis：状态、缓存、幂等 | 2 | Java | — |
 | 5 | LLM 调用基础 | 2 | **Python 先**，Java 复写 | ch01 的模型客户端部分 |
-| 6 | Structured Output 与 Tool Calling | 2 | Python + Java | ch02（Structured Output 需自写）；**已交付 lesson03+04** |
+| 6 | Structured Output 与 Tool Calling | 2 | Python + Java | ch02（Structured Output 需自写）；**已交付 `06-structured-output` + `07-tool-calling`** |
 | 7 | 手写 Agent Loop 与工具边界 | 2 | Python/TypeScript | ch01、ch02 |
 | 8 | 权限、Hook 与安全边界 | 2 | Python/TypeScript | ch03、ch04 |
 | 9 | 上下文工程：计划、压缩、记忆 | 3 | Python/TypeScript | ch05、ch06、ch08、ch09、ch10 |
@@ -147,9 +147,10 @@ Controller/Service/Repository 分层、DTO、`@Valid` 参数校验、`@RestContr
 
 ## 阶段 6：Structured Output 与 Tool Calling
 
-> **状态：主体已交付（2026-08-28，作为 `05-llm-client/lesson03` + `lesson04`），最小评估集已建（`MinimalEvaluationSetTest`，7 行基线）**
-> 剩余欠账：无。Trace 与结构化日志已在阶段 7（`lesson05`）补齐。
-> 路线偏差：两课都作为阶段 5 的子课（`05-llm-client` 内），与计划档案「路线偏差说明」一致。
+> **状态：已交付（2026-08-28），最小评估集已建（`MinimalEvaluationSetTest`）**
+> 剩余欠账：无。Trace 与结构化日志已在阶段 7（`08-agent-loop`）补齐。
+> 模块：`06-structured-output`（前半）+ `07-tool-calling`（后半）。两课最初作为阶段 5 的子课交付，
+> 2026-08-26 已拆成独立模块，目录号与阶段号从此一致。
 
 这是从「聊天机器人」转到「Agent 应用」的关键阶段。
 
@@ -165,15 +166,15 @@ Tool Calling 部分参照 `code/chapters/ch02/`（`tool_registry`、Zod 输入�
 
 **核心原则：**结构正确不代表业务合法。模型生成的 `{"action":"delete"}` 即使 JSON 正确，也必须经过权限、对象存在性和危险操作校验。
 
-**代码产出（lesson03）：**自然语言「在北侧生成雷达」转换成 `SceneOperation`，经过 Schema 校验和业务校验后只生成预览，不直接修改真实数据。52 个测试。
+**代码产出（`06-structured-output`）：**自然语言「在北侧生成雷达」转换成 `SceneOperation`，经过 Schema 校验和业务校验后只生成预览，不直接修改真实数据。52 个测试。
 
-**代码产出（lesson04）：**最小工具调用闭环 —— `prepare`/`invoke` 分离、破坏性工具人工确认、结果以 TOOL 角色回传并带原始 `tool_call_id`。17 个测试。
+**代码产出（`07-tool-calling`）：**最小工具调用闭环 —— `prepare`/`invoke` 分离、破坏性工具人工确认、结果以 TOOL 角色回传并带原始 `tool_call_id`。17 个测试。
 
-**本阶段必须建立最小评估集**，见「贯穿项」。已建立：`MinimalEvaluationSetTest`，7 行跨 lesson03/04 回归基线。
+**本阶段必须建立最小评估集**，见「贯穿项」。已建立：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，跨 06/07/09 的回归基线。
 
 ## 阶段 7：手写 Agent Loop 与工具边界
 
-> **状态：已交付（2026-08-28，作为 `05-llm-client/lesson05`），贯穿项「Trace 与结构化日志」同步补齐**
+> **状态：已交付（2026-08-28，模块 `08-agent-loop`），贯穿项「Trace 与结构化日志」同步补齐**
 > 七项要求全部落地；`run` 返回 `AgentTrace` 而不是字符串，停止原因是枚举 `StopReason`。15 个测试。
 
 先不用 LangGraph，手写最小循环，理解框架到底替你做了什么：
@@ -202,7 +203,7 @@ return 超过最大轮次
 | **重复 tool call 幂等** | `ToolCallMemo`（键 = 工具名 + 原始参数串） | **本阶段新增** |
 | **每轮日志与 trace id** | `AgentTrace` / `RoundTrace` / `TraceIdGenerator` | **本阶段新增** |
 
-**代码产出：**`05-llm-client/lesson05` 七个类 + `lessons/05-agent-loop.md`；15 个离线测试。
+**代码产出：**`08-agent-loop` 八个类 + `lessons/01-agent-loop.md`；15 个离线测试。
 
 三个真正新增的点：
 
@@ -232,10 +233,10 @@ Agent 能执行工具之后，第一件事不是加更多工具，而是把危�
 
 **完成标准：**能在不修改 Loop 主体的前提下，为某个工具加一条「必须人工确认」的策略，并留下审计记录。
 
-**Java 实现进度：已完成。**拆成两课：`05-llm-client/lessons/06-permissions.md` + `lesson06` 包（权限，36 个测试）
-和 `lessons/07-hooks.md` + `lesson07` 包（Hook 生命周期，33 个测试），共 69 个离线测试。
+**Java 实现进度：已完成。**都在 `09-agent-guardrails` 模块，拆成两课：`lessons/01-permissions.md` + `permission` 包（权限，36 个测试）
+和 `lessons/02-hooks.md` + `hook` 包（Hook 生命周期，33 个测试），共 69 个离线测试。
 完成标准由 `shouldAddConfirmationPolicyWithoutTouchingLoop` 证明：`GuardedAgentLoop` 注入 `PermissionPolicy`，
-`lesson05.AgentLoop` 一行未改。第 7 课补上四个事件、`updatedInput` 的三道锁（保 id、保工具名、按引用相等保
+阶段 7 的 `AgentLoop` 一行未改。第 7 课补上四个事件、`updatedInput` 的三道锁（保 id、保工具名、按引用相等保
 定义）与 `stopHookActive`（无限续写在机制上不可能）；`HookedAgentLoopTest.shouldFireHooksInDocumentedOrder`
 断言链路顺序为 `user → pre → permission → handler → post → stop`，即 Hook 能在裁决前改参数，改完仍要过裁决。
 
@@ -488,7 +489,7 @@ Set-Location '.\python'
 
 - 阶段 1-3：Java 状态机、线程池、Spring Boot API（DONE）；
 - 阶段 4：Redis 幂等、真实客户端、Hash 状态、Spring 条件更新、缓存基础（收尾中）；
-- 阶段 5：LLM 调用 + 结构化输出 + Tool Calling（DONE，`05-llm-client` lesson01-04，149 测试）；阶段 6 主体随之完成。
+- 阶段 5：LLM 调用（DONE，`05-llm-client`，80 测试）；阶段 6 结构化输出 + Tool Calling（DONE，`06-structured-output` 52 测试 + `07-tool-calling` 17 测试）。
 
 接下来不再继续无限扩展 Redis。执行顺序：
 

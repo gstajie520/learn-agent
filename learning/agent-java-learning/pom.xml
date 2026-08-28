@@ -9,12 +9,24 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <!-- 每个 module 对应一个学习阶段，后续阶段继续追加到这里。 -->
+    <!--
+      module 名前缀是学习顺序，不是阶段号 —— 阶段 6 拆成了 06、07 两个模块，
+      所以两者从这里开始不再一一对应。每个模块的 pom 头部注明自己属于哪个阶段。
+
+      模块之间是一条单向依赖链：05 → 06 → 07 → 08 → 09 → 99。
+      后一个模块复用前一个的代码，反向依赖一律不允许（会立刻变成循环依赖）。
+      99-minimal-eval 依赖全部上游，所以永远是最末端，不能被任何模块依赖。
+    -->
     <modules>
         <module>01-java-state-machine</module>
         <module>02-java-concurrency</module>
         <module>03-springboot-command-api</module>
         <module>04-redis</module>
         <module>05-llm-client</module>
+        <module>06-structured-output</module>
+        <module>07-tool-calling</module>
+        <module>08-agent-loop</module>
+        <module>09-agent-guardrails</module>
+        <module>99-minimal-eval</module>
     </modules>
 </project>

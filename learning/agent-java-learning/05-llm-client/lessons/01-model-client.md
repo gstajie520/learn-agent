@@ -115,7 +115,7 @@ mvn -o -pl 05-llm-client -am test
 ```powershell
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 mvn -o -pl 05-llm-client -am package -DskipTests
-java -cp '05-llm-client/target/classes' learn.agent.llm.lesson01.SceneSummaryDemo
+java -cp '05-llm-client/target/classes' learn.agent.llm.client.SceneSummaryDemo
 ```
 
 第一行设置控制台 UTF-8。PowerShell 默认代码页是 GBK，不设置的话中文输出会显示成乱码 —— 这是控制台显示问题，不是程序错误。
