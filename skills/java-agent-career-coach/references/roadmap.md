@@ -18,8 +18,8 @@
 | 6 | Structured Output 与 Tool Calling | ch02 | Python 先，Java 后 |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | TypeScript/Python 读，Java 重写 |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | 本仓库章节代码 |
-| 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | 本仓库章节代码 |
-| 10 | RAG 与 Skill 按需加载 | ch07 | Python |
+| 9 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | 本仓库章节代码 |
+| 10 | RAG 与向量检索 | —（需自写，教材无独立章节） | Python |
 | 11 | API 韧性与任务系统 | ch11–ch14 | 本仓库章节代码 |
 | 12 | LangGraph 状态与工作流 | — | Python |
 | 13 | Java Agent 集成 | — | Java（Spring AI） |
