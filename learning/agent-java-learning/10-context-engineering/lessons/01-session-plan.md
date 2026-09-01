@@ -125,16 +125,33 @@ public List<ChatMessage> beforeModel() {
 但接进去之后暴露了一件事：
 
 ```
-最后一次请求的消息数=9，其中提醒 1 条
-要点：提醒确实注入成功了，但它被 append 进了 messages ——
-      从此每一轮都要为它付 token，历史里也多了一句没人说过的话。
+=== 场景五：Hook 路径 vs 观察器路径 ===
+  Hook 路径：全部请求累计出现 5 次提醒（进了历史，每轮重复付 token）
+  观察器路径：全部请求累计出现 2 次提醒（每次触发只付一次）
 ```
 
-Hook 返回的 `additionalContext` 会被 `HookedAgentLoop` **append 进 messages**，也就是说走 Hook 这条路径**实现不出第四节那段语义**。
+Hook 返回的 `additionalContext` 会被 `HookedAgentLoop` **append 进 messages**，于是提醒一旦发出就留在历史里，此后每一轮都要为它付 token。同一个剧本跑 7 轮，两条路径的累计代价是 5 次对 2 次。
 
-**这不是取舍失误，是一个发现。** Hook 的设计目标是「改变对话」 —— 它的每一种返回值（改参数、改结果、拦下、续写）都在改变对话的实际内容。而提醒要的恰恰是「**不**改变对话，只影响下一次请求」，这在 Hook 的词汇表里没有对应物。硬塞进 `additionalContext` 就会得到上面那些代价。
+### 这里我曾经下过一个错误结论
 
-正确的位置是一个「每次请求前被问一遍，产出临时上下文」的扩展点 —— 也就是本阶段第 5 课的动态 Prompt 组装（Provider）。本课先把两条路都留下：`beforeModel()` 保住教材语义并有单测护住，Hook 证明它接得进现有循环、也暴露出现有循环缺什么。
+当时我写的是：「这不是取舍失误，是一个发现 —— Hook 的设计目标是改变对话，而提醒要的恰恰是不改变对话，这在 Hook 的词汇表里没有对应物。正确的位置是第 5 课的 Provider。」
+
+**前半句的观察是对的，结论是错的。** 教材在讲会话计划的**同一章**（`code/chapters/ch05/src/core/loop.ts`）就已经给了这个扩展点：
+
+```ts
+export interface ToolRoundObserver {
+  beforeModel(): readonly ChatMessage[];
+  recordToolRound(toolNames: readonly string[]): void;
+}
+```
+
+循环在每次请求前调一次 `beforeModel()`，把产出拼进**这一次**请求的 messages，**不 push 进 history**。也就是说「请求级临时上下文」这个语义教材第 1 课就有，不需要等任何后续课程。
+
+我当时只查了自己 Java 侧的三个循环、确认它们没有 observer，就直接下了「教材没有、要等 Provider」的结论 —— 把「**我的实现**没有 X」写成了「**教材**没有 X」。这两件事不一样。
+
+修正后：`ToolRoundObserver` 放在 `08-agent-loop` 的 `loop` 包，`HookedAgentLoop` 多一个可选构造参数，`TodoTracker` 直接 `implements ToolRoundObserver`。两条路都留着 —— 观察器是正确语义，Hook 版留作反面教材，`PlanReminderHookTest` 钉住它「提醒会进历史」这个代价。
+
+顺带纠正：Provider（第 6 课）管的是「整个系统提示怎么组装」，和「这一次请求要不要多带一句提醒」是两个不同的扩展点，教材 `ch10` 的循环里两者并存（`systemPromptProvider.render()` 和 `toolRoundObserver.beforeModel()`）。
 
 ### 另一个已知限制
 

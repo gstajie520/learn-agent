@@ -54,20 +54,24 @@ Skill 按需加载（第 3 课）从原阶段 10 挪进这里，原因是教材 
 
 `PlanReminderHook` 注册在 `PostToolUse` 上，**没有给循环加一行代码**。这是阶段 8 那套 Hook 扩展点第一次被下游真正复用 —— 也就是说不需要第四个循环骨架。
 
-前三个阶段各写了一个循环（`AgentLoop`、`GuardedAgentLoop`、`HookedAgentLoop`），阶段 8 的笔记里把这个重复记成了设计债。本课的结论是：**这笔债不用还了**，Hook 这个扩展点已经够用。
+前三个阶段各写了一个循环（`AgentLoop`、`GuardedAgentLoop`、`HookedAgentLoop`），阶段 8 的笔记里把这个重复记成了设计债。本课当时的结论是「这笔债不用还了，Hook 这个扩展点已经够用」——**这句话只对了一半**：不必新写第四个循环骨架是对的，但 Hook 并不够用，见下一节。而且那三份复制出来的骨架后来真的漂移了（`HookedAgentLoop` 漏掉了破坏性闸门），现在由 `LoopBehaviorParityTest` 守着。
 
-## 但它暴露了一个缺口
+## 但它暴露了一个缺口（已补上）
 
 Hook 注入的 `additionalContext` 会被 append 进 messages，而提醒要的是「只影响下一次请求，不进历史」。两者**不等价**：
 
 | 路径 | 提醒去哪了 | 代价 |
 |---|---|---|
-| `TodoTracker.beforeModel()` | 只拼进这一次请求 | 阶段 8 的循环没有这个扩展点，用不上 |
-| `PlanReminderHook` | append 进 messages | 每轮重复付 token，历史里多了没人说过的话 |
+| `TodoTracker.beforeModel()`（观察器） | 只拼进这一次请求 | 无 —— 这是正确语义 |
+| `PlanReminderHook`（Hook） | append 进 messages | 每轮重复付 token，历史里多了没人说过的话 |
 
-**这不是取舍失误，是一个发现。** Hook 的设计目标是「改变对话」；提醒要的恰恰是「不改变对话」。这在 Hook 的词汇表里没有对应物。
+`PlanDemo` 场景五把这个差别跑成了数字：同一个剧本跑 7 轮，Hook 路径累计出现 5 次提醒（进了历史，此后每轮重复计入），观察器路径 2 次（触发两次、各付一次）。
 
-正确的位置是「每次请求前被问一遍，产出临时上下文」的扩展点 —— 也就是本阶段第 5 课的 Provider。本课两条路都留着：`beforeModel()` 保住教材语义并有单测护住，Hook 证明它接得进现有循环、也证明现有循环缺什么。
+**当时把这条落差记成「Hook 的设计缺陷、要等 Provider 解决」，那个结论是错的。** 教材在讲会话计划的同一章（`code/chapters/ch05/src/core/loop.ts`）本来就有 `toolRoundObserver` 扩展点，接口正是 `beforeModel()` + `recordToolRound()`，产出只拼进当次请求、不写进历史。真实原因不是「Hook 表达不了」，而是**我们的循环少抄了这个扩展点**。
+
+重构检查后补上了 `ToolRoundObserver`（在 `08-agent-loop` 的 `loop` 包），`HookedAgentLoop` 多了一个可选构造参数，`TodoTracker` 直接 `implements ToolRoundObserver`。两条路都留着：观察器是正确语义，Hook 版留作反面教材并由测试钉住它的代价。
+
+顺带纠正另一处：Provider（第 6 课）管的是「整个系统提示怎么组装」，和「这一次请求要不要多带一句提醒」是**两个不同的扩展点**，教材 `ch10` 的循环里两者并存。
 
 ## 统一运行
 

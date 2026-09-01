@@ -36,7 +36,8 @@ import learn.agent.llm.tool.ToolRegistry;
  *   <li>增量式的错误参数被校验层一次性挡下；</li>
  *   <li>连续三轮不更新计划，{@code beforeModel()} 注入提醒；</li>
  *   <li>提醒发出后立刻清零，不会每轮重复；</li>
- *   <li>接进阶段 8 的循环，观察提醒<b>留在了历史里</b>这个代价。</li>
+ *   <li>同一剧本跑两遍，对比 Hook 路径（提醒<b>留在历史里</b>）和观察器路径
+ *       （提醒<b>只进当次请求</b>）。</li>
  * </ol>
  *
  * <p>运行：</p>
@@ -136,52 +137,81 @@ public class PlanDemo {
         System.out.println();
     }
 
-    /** 场景五：接进阶段 8 的循环。能跑通，但暴露出 Hook 这条路径的代价。 */
+    /**
+     * 场景五：两条注入路径的<b>正面对比</b>。
+     *
+     * <p>同一个剧本跑两遍：一遍把提醒挂在 Hook 上，一遍走循环的观察器扩展点。
+     * 唯一的差别是提醒最后有没有留在历史里 —— 而那正是这一课要讲的东西。</p>
+     */
     private static void demoInsideLoop() {
-        System.out.println("=== 场景五：接进阶段 8 的 HookedAgentLoop ===");
+        System.out.println("=== 场景五：Hook 路径 vs 观察器路径 ===");
 
+        int viaHook = runReminderScenario(true);
+        int viaObserver = runReminderScenario(false);
+
+        System.out.println("  Hook 路径：全部请求累计出现 " + viaHook + " 次提醒（进了历史，每轮重复付 token）");
+        System.out.println("  观察器路径：全部请求累计出现 " + viaObserver + " 次提醒（每次触发只付一次）");
+        System.out.println("要点：Hook 的 additionalContext 会 append 进 messages，从此每轮都要");
+        System.out.println("      为它付 token，历史里还多了一句没人说过的话。观察器的");
+        System.out.println("      beforeModel() 只拼进当次请求，发完就丢 —— 这才是提醒的正确语义。");
+        System.out.println("      教材 ch05 的循环本来就有这个扩展点，不需要等 Provider。");
+        System.out.println();
+    }
+
+    /**
+     * 跑一次「连续三轮不更新计划」的剧本，返回最后一次请求里提醒出现的条数。
+     *
+     * @param useHook true 走 {@link PlanReminderHook}，false 走观察器扩展点
+     */
+    private static int runReminderScenario(boolean useHook) {
         TodoTracker tracker = new TodoTracker();
         ToolRegistry registry = new ToolRegistry();
         registry.register(tracker.getToolDefinition());
         registry.register(readOnlyTool("list_devices"));
 
         HookRegistry hooks = new HookRegistry();
-        PlanReminderHook.registerOn(hooks, tracker);
+        if (useHook) {
+            PlanReminderHook.registerOn(hooks, tracker);
+        }
 
         FakeModelClient fake = new FakeModelClient();
-        // 连续三轮只读工具，第四轮给最终答复。第三轮之后提醒应当出现。
-        for (int i = 1; i <= TodoTracker.STALE_TOOL_ROUNDS; i++) {
+        // 刻意跑够 6 轮只读工具再收尾。轮数拉长才看得出两条路径的差别：
+        // 提醒在第 3 轮后首次出现，之后 Hook 路径会让它留在历史里每轮重复，
+        // 观察器路径则发完就丢。只看最后一次请求是看不出来的 —— 那一次两边
+        // 都恰好有一条，但一个是「历史里留着的」，一个是「刚拼进来的」。
+        int toolRounds = TodoTracker.STALE_TOOL_ROUNDS * 2;
+        for (int i = 1; i <= toolRounds; i++) {
             fake.enqueueResponse(
                     ToolCallCodec.encode(new ToolCall("call-" + i, "list_devices", "{}")),
                     FinishReason.TOOL_CALLS, new TokenUsage(100, 20));
         }
         fake.enqueueResponse("三台设备都在线。", FinishReason.STOP, new TokenUsage(200, 30));
 
+        // 走观察器时把 tracker 作为 observer 传进循环；走 Hook 时不传。
         HookedAgentLoop loop = new HookedAgentLoop(
                 "demo-model", fake, registry, context(), 8, 2000L,
-                TraceIdGenerator.fixed("trace-plan-demo"), null, hooks);
+                TraceIdGenerator.fixed("trace-plan-demo"), null, hooks,
+                useHook ? null : tracker);
 
         try {
             GuardedTrace trace = loop.run("你是场景管理助手", "检查一下所有设备");
-            System.out.println("停止原因：" + trace.getStopReason().getWireValue()
-                    + "，轮数=" + trace.getRoundCount());
+            System.out.println("  [" + (useHook ? "Hook" : "观察器") + "] 停止原因："
+                    + trace.getStopReason().getWireValue() + "，轮数=" + trace.getRoundCount());
 
-            // 数一下最后一次请求里出现了几条提醒。
+            // 累计所有请求里提醒出现的总次数。这个指标才能区分两条路径：
+            // 进了历史的提醒会在此后每一次请求里被重复计到。
             int reminders = 0;
-            for (ChatMessage message : fake.getLastRequest().getMessages()) {
-                if (TodoTracker.STALE_REMINDER.equals(message.getContent())) {
-                    reminders++;
+            for (int i = 0; i < fake.getCallCount(); i++) {
+                for (ChatMessage message : fake.getRequest(i).getMessages()) {
+                    if (TodoTracker.STALE_REMINDER.equals(message.getContent())) {
+                        reminders++;
+                    }
                 }
             }
-            System.out.println("最后一次请求的消息数=" + fake.getLastRequest().getMessages().size()
-                    + "，其中提醒 " + reminders + " 条");
-            System.out.println("要点：提醒确实注入成功了，但它被 append 进了 messages ——");
-            System.out.println("      从此每一轮都要为它付 token，历史里也多了一句没人说过的话。");
-            System.out.println("      这就是阶段 9 第 5 课要引入 Provider 的原因。");
+            return reminders;
         } finally {
             loop.shutdown();
         }
-        System.out.println();
     }
 
     /** 走完整链路写一次快照。 */

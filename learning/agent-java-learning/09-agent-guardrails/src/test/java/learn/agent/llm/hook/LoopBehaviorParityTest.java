@@ -22,6 +22,7 @@ import learn.agent.llm.loop.StopReason;
 import learn.agent.llm.loop.TraceIdGenerator;
 import learn.agent.llm.permission.GuardedAgentLoop;
 import learn.agent.llm.permission.GuardedTrace;
+import learn.agent.llm.permission.PermissionPolicy;
 import learn.agent.llm.structured.DeviceType;
 import learn.agent.llm.structured.SceneSnapshot;
 import learn.agent.llm.tool.ToolCall;
@@ -132,10 +133,38 @@ public class LoopBehaviorParityTest {
         };
     }
 
-    /** 全部接受 null 策略的循环。{@code GuardedAgentLoop} 不在其中，见下方专门的测试。 */
-    private static Map<String, Loop> loopsAcceptingNullPolicy() {
+    /**
+     * 阶段 8 的带权限循环，配一份<b>空策略</b>。
+     *
+     * <p>空策略不等于没有策略：{@code PermissionPolicy} 仍然会跑完整裁决，
+     * `DESTRUCTIVE` 默认 ask、没有审批器则 fail-closed 成 deny。这正是
+     * 「空实例」和「null」的区别所在。</p>
+     */
+    private static Loop guardedLoopWithEmptyPolicy() {
+        return (client, registry, context) -> {
+            GuardedAgentLoop loop = new GuardedAgentLoop("m", client, registry, context,
+                    5, 2000L, TraceIdGenerator.fixed("parity"), new PermissionPolicy());
+            try {
+                GuardedTrace trace = loop.run("你是助手", "处理一下");
+                return new Run(trace.getStopReason(), trace.getRounds());
+            } finally {
+                loop.shutdown();
+            }
+        };
+    }
+
+    /**
+     * <b>全部三个循环</b>，各自配上「最低限度但合法」的配置。
+     *
+     * <p>这是本类的主力集合：凡是「无论加了什么能力都必须成立」的规则，
+     * 都要对这三个各跑一遍。早先这里只有两个循环，于是
+     * {@code GuardedAgentLoop} 的白名单和只读放行<b>根本没被覆盖</b> ——
+     * 那两条在它里面漂移了，这个测试也不会红。</p>
+     */
+    private static Map<String, Loop> allLoops() {
         Map<String, Loop> loops = new LinkedHashMap<String, Loop>();
         loops.put("AgentLoop", agentLoop());
+        loops.put("GuardedAgentLoop(空策略)", guardedLoopWithEmptyPolicy());
         loops.put("HookedAgentLoop(policy=null)", hookedLoopWithoutPolicy());
         return loops;
     }
@@ -153,9 +182,9 @@ public class LoopBehaviorParityTest {
      * 只会安静地把设备删掉。</p>
      */
     @Test
-    @DisplayName("一致性：无策略时破坏性工具在每个循环里都被拦下")
-    void shouldBlockDestructiveToolWithoutPolicyInEveryLoop() {
-        for (Map.Entry<String, Loop> entry : loopsAcceptingNullPolicy().entrySet()) {
+    @DisplayName("一致性：没有明确授权时，破坏性工具在每个循环里都不执行")
+    void shouldBlockDestructiveToolInEveryLoop() {
+        for (Map.Entry<String, Loop> entry : allLoops().entrySet()) {
             String name = entry.getKey();
             List<String> sideEffects = new ArrayList<String>();
 
@@ -164,10 +193,18 @@ public class LoopBehaviorParityTest {
                     registryWith(destructiveTool(sideEffects)),
                     context());
 
+            // 唯一真正通用的不变量：handler 没跑，副作用没落地。
             assertTrue(sideEffects.isEmpty(),
                     name + "：破坏性 handler 不该执行，实际产生副作用 " + sideEffects);
-            assertEquals("blocked_destructive", run.firstToolOutcome(),
-                    name + "：第一轮的结局应当是 blocked_destructive");
+
+            // 结局标签按设计就不同，不能强求一致：
+            //   AgentLoop / HookedAgentLoop(无策略) 走硬编码兜底闸门 → blocked_destructive
+            //   GuardedAgentLoop(空策略) 走裁决，DESTRUCTIVE 默认 ask、
+            //     无审批器 fail-closed 成 deny                    → permission_denied
+            // 断言「属于这两者之一」，既保住不变量、又不假装三份实现相同。
+            String outcome = run.firstToolOutcome();
+            assertTrue("blocked_destructive".equals(outcome) || "permission_denied".equals(outcome),
+                    name + "：结局应当是 blocked_destructive 或 permission_denied，实际：" + outcome);
         }
     }
 
@@ -180,7 +217,7 @@ public class LoopBehaviorParityTest {
     @Test
     @DisplayName("一致性：只读工具在每个循环里都正常执行")
     void shouldExecuteReadToolInEveryLoop() {
-        for (Map.Entry<String, Loop> entry : loopsAcceptingNullPolicy().entrySet()) {
+        for (Map.Entry<String, Loop> entry : allLoops().entrySet()) {
             String name = entry.getKey();
             List<String> calls = new ArrayList<String>();
 
@@ -206,7 +243,7 @@ public class LoopBehaviorParityTest {
     @Test
     @DisplayName("一致性：未注册的工具名在每个循环里都被白名单拦下")
     void shouldRejectUnknownToolInEveryLoop() {
-        for (Map.Entry<String, Loop> entry : loopsAcceptingNullPolicy().entrySet()) {
+        for (Map.Entry<String, Loop> entry : allLoops().entrySet()) {
             String name = entry.getKey();
             List<String> calls = new ArrayList<String>();
 

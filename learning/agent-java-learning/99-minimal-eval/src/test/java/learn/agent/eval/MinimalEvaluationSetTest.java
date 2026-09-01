@@ -796,6 +796,115 @@ public class MinimalEvaluationSetTest {
                     return null;
                 }));
 
+        // ---------- 重构检查后补的基线（每条都对应一个真实回归/缺陷） ----------
+        rows.add(new Row("无策略时破坏性工具不执行", "handler 未执行",
+                () -> {
+                    // 这条守的是一次真实的安全回归：HookedAgentLoop 复制骨架时
+                    // 整块漏掉了破坏性闸门，于是不配策略时 delete_device 直接落地，
+                    // 防护比最原始的 AgentLoop 还弱 —— 而这种循环最容易让人以为更强。
+                    final List<String> sideEffects = new ArrayList<String>();
+                    ToolRegistry registry = new ToolRegistry();
+                    registry.register(new ToolDefinition("delete_device", "删除设备（不可逆）",
+                            "{\"type\":\"object\"}", ToolEffect.DESTRUCTIVE,
+                            new ToolHandler() {
+                                @Override
+                                public ToolExecutionResult execute(JsonNode arguments,
+                                                                  ToolContext context) {
+                                    sideEffects.add("deleted");
+                                    return ToolExecutionResult.success("已删除");
+                                }
+                            }));
+
+                    HookedAgentLoop loop = new HookedAgentLoop("m",
+                            hookModel("delete_device", "{}", "好了"),
+                            registry, new ToolContext("eval", scene()),
+                            5, 2000L, TraceIdGenerator.fixed("t"), null, new HookRegistry());
+                    try {
+                        loop.run("你是助手", "删掉 radar-01");
+                    } finally {
+                        loop.shutdown();
+                    }
+                    if (!sideEffects.isEmpty()) {
+                        return "策略为 null 时破坏性 handler 仍然执行了：" + sideEffects;
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("提醒不进消息历史", "第二轮请求里没有提醒",
+                () -> {
+                    // 守「请求级临时上下文」这条语义。走 Hook 那条路会让提醒
+                    // append 进 messages，此后每轮重复付 token；观察器扩展点才是对的。
+                    TodoTracker tracker = new TodoTracker();
+                    ToolRegistry registry = new ToolRegistry();
+                    registry.register(tracker.getToolDefinition());
+                    AtomicInteger listCalls = new AtomicInteger();
+                    registry.register(new ToolDefinition("list_devices", "列出设备", "{}",
+                            ToolEffect.READ, new ToolHandler() {
+                                @Override
+                                public ToolExecutionResult execute(JsonNode arguments,
+                                                                  ToolContext context) {
+                                    listCalls.incrementAndGet();
+                                    return ToolExecutionResult.success("设备：radar-01");
+                                }
+                            }));
+
+                    // 攒够阈值让提醒发出，然后再跑一轮，看它有没有留在历史里。
+                    FakeModelClient fake = new FakeModelClient();
+                    for (int i = 0; i <= TodoTracker.STALE_TOOL_ROUNDS; i++) {
+                        fake.enqueueResponse(ToolCallCodec.encode(
+                                        new ToolCall("c" + i, "list_devices", "{}")),
+                                FinishReason.TOOL_CALLS, new TokenUsage(10, 5));
+                    }
+                    fake.enqueueResponse("查完了。", FinishReason.STOP, new TokenUsage(10, 5));
+
+                    HookedAgentLoop loop = new HookedAgentLoop("m", fake, registry,
+                            new ToolContext("eval", scene()), 8, 2000L,
+                            TraceIdGenerator.fixed("t"), null, new HookRegistry(), tracker);
+                    try {
+                        loop.run("你是助手", "检查设备");
+                    } finally {
+                        loop.shutdown();
+                    }
+
+                    // 提醒最多只应在一次请求里出现（触发那次），不该累计。
+                    int total = 0;
+                    for (int i = 0; i < fake.getCallCount(); i++) {
+                        for (ChatMessage m : fake.getRequest(i).getMessages()) {
+                            if (TodoTracker.STALE_REMINDER.equals(m.getContent())) {
+                                total++;
+                            }
+                        }
+                    }
+                    if (total == 0) {
+                        return "提醒压根没发出，阈值逻辑坏了";
+                    }
+                    if (total > 1) {
+                        return "提醒进了历史并重复出现 " + total + " 次；它应当只影响当次请求";
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("todo_write 拒绝未知字段", "invalid_arguments",
+                () -> {
+                    // 教材两层 schema 都用 .strict()。不拒的后果不是「多个字段无所谓」：
+                    // 多出来的字段会被静默丢掉，而回传整张快照的目的正是让模型逐字段
+                    // 对比 —— 丢字段等于制造一次没有解释的不一致。
+                    TodoTracker tracker = new TodoTracker();
+                    ToolExecutionResult result = writeTodos(tracker,
+                            "{\"todos\":[{\"content\":\"x\",\"status\":\"pending\","
+                                    + "\"priority\":\"high\"}]}");
+                    if (!result.isError()) {
+                        return "带未知字段的写入必须被拒绝";
+                    }
+                    if (!"invalid_arguments".equals(result.getErrorCode())) {
+                        return "期望 invalid_arguments，实际：" + result.getErrorCode();
+                    }
+                    if (!result.getContent().contains("priority")) {
+                        return "错误信息应当点出未知字段名，实际：" + result.getContent();
+                    }
+                    return null;
+                }));
+
         return rows;
     }
 

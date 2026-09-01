@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import learn.agent.llm.client.ChatMessage;
+import learn.agent.llm.loop.ToolRoundObserver;
 import learn.agent.llm.tool.ToolContext;
 import learn.agent.llm.tool.ToolDefinition;
 import learn.agent.llm.tool.ToolEffect;
@@ -49,7 +50,7 @@ import learn.agent.llm.tool.ToolHandler;
  * 那个 {@code todo_write}，写入的一定是这个 tracker，不可能因为有人注册错了
  * 而写到另一个会话的计划里。</p>
  */
-public class TodoTracker {
+public class TodoTracker implements ToolRoundObserver {
 
     /** 连续多少轮「有工具调用但没更新计划」之后开始提醒。 */
     public static final int STALE_TOOL_ROUNDS = 3;
@@ -135,6 +136,7 @@ public class TodoTracker {
      *
      * @param toolNames 这一轮调用过的工具名
      */
+    @Override
     public void recordToolRound(List<String> toolNames) {
         if (toolNames == null || toolNames.isEmpty()) {
             return;
@@ -171,6 +173,7 @@ public class TodoTracker {
      *
      * @return 要临时附加的消息；未达阈值时返回空列表
      */
+    @Override
     public List<ChatMessage> beforeModel() {
         if (nonTodoToolRounds < STALE_TOOL_ROUNDS) {
             return Collections.emptyList();

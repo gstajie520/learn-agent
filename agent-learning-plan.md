@@ -43,7 +43,7 @@
 
 | 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
-| 最小评估集 | 6 | **完成** | 已建 `99-minimal-eval` 模块的 `learn.agent.eval.MinimalEvaluationSetTest`：跨阶段 6/8/9 的回归基线共 26 行，改完 `mvn -o test` 即跑 |
+| 最小评估集 | 6 | **完成** | 已建 `99-minimal-eval` 模块的 `learn.agent.eval.MinimalEvaluationSetTest`：跨阶段 6/7/8/9 的回归基线共 29 行，改完 `mvn -o test` 即跑 |
 | Trace 与结构化日志 | 7 | **完成** | 已建 `AgentTrace`/`RoundTrace`：trace id + 每轮工具名、`tool_call_id`、结局、耗时、token；`toLogLine()` 输出 `key=value` 可 grep |
 | 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 至 8 各课的文档均已含「常见面试题」 |
 
@@ -56,7 +56,7 @@
 - 阶段状态：IN_PROGRESS（6 课中前 2 课已完成）
 - 主教材：`code/chapters/ch05`、`ch06`、`ch07`、`ch08`、`ch09`、`ch10`
 - 阶段 5 至 8 的模块与文档路径见下方「已完成内容」，每个模块自带 README 导航
-- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 325 个测试，3 跳过为缺 `REDIS_PASSWORD` 的真实 Redis）
+- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 327 个测试，3 跳过为缺 `REDIS_PASSWORD` 的真实 Redis）
 - 本阶段六课进度：第 1 课会话计划、第 2 课子 Agent **已完成**；第 3 课 Skill 按需加载、第 4 课产物落盘与压缩、第 5 课文件记忆、第 6 课动态 Prompt 组装待做
 
 ## 已完成内容
@@ -138,7 +138,7 @@
 
 ### 贯穿项
 
-- **最小评估集**：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，26 行跨阶段回归基线。它依赖全部上游模块，所以必须留在最末端，不能被任何模块依赖。每进入一个新阶段往里加 3-5 行
+- **最小评估集**：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，29 行跨阶段回归基线。它依赖全部上游模块，所以必须留在最末端，不能被任何模块依赖。每进入一个新阶段往里加 3-5 行
 - **Trace 与结构化日志**：已补（`AgentTrace`/`RoundTrace`，阶段 7）。做成内存里可断言的对象而不是日志行：测试能直接断言「第 2 轮调了哪个工具、为什么停」，不用 grep stdout；后续接日志框架时序列化即可，不必重新找埋点位置
 
 ### 阶段 5 收尾可选项
@@ -488,6 +488,7 @@
 - 核心设计三：**提醒是请求级临时消息，读取即清零**。`beforeModel()` 有副作用、不是纯查询。写进历史的话，跑三十轮会攒下十条一模一样的「保持计划更新」，每轮都为它付 token，还污染了可回放的历史（那些话没有任何人说过）
 - 核心设计四：`todo_write` 是 **WRITE 不是 DESTRUCTIVE**。副作用等级按撤销的真实成本定，不按听起来危险不危险定。标 DESTRUCTIVE 会让模型每次更新计划都弹确认框，用户会直接关掉整个机制
 - **本课最值得记的一个发现**：Hook 表达不了「请求级临时上下文」。它的 `additionalContext` 会被 append 进 messages，从此永久占预算 —— 也就是说走 Hook 这条路**做不出** `beforeModel()` 的语义。这不是取舍失误，是 Hook 的设计目标决定的：它的每种返回值（改参数、改结果、拦下、续写）都在**改变对话**，而提醒要的恰恰是「不改变对话，只影响下一次请求」，这在 Hook 的词汇表里没有对应物。正确的位置是一个「每次请求前被问一遍」的扩展点，也就是第 5 课的 Provider。两条路都留下了：`beforeModel()` 保住教材语义并有单测护住，Hook 版证明它接得进现有循环、同时暴露出现有循环缺什么
+  - **【后续订正，2026-09-01】上面这个「发现」是错的，保留原文以记录当时的推理错误。** 教材在讲会话计划的同一章（`code/chapters/ch05/src/core/loop.ts`）本来就有 `toolRoundObserver` 扩展点，接口正是 `beforeModel()` + `recordToolRound()`，产出只拼进当次请求、不进历史。所以落差的真实原因不是「Hook 表达不了」，而是**我的循环少抄了这个扩展点**。当时只查了自己的三个循环、没回去读教材同章的 loop，就把「我的实现没有 X」写成了「教材没有 X」。另外 Provider 管的是系统提示组装，和这件事是两个不同的扩展点。已补 `ToolRoundObserver` 并让 `TodoTracker` 实现它
 - 如实记下的第二个限制：`POST_TOOL_USE` 只在工具**真的执行了**之后触发，被权限拒绝／被 prepare 拦下／命中幂等缓存的轮次不计入陈旧计数。从「计划有没有推进」看这是对的，但和 `recordToolRound` 的字面语义有出入
 - 代码产出：`TodoStatus`、`TodoItem`、`TodoWriteValidator`、`TodoTracker`、`PlanReminderHook`、`PlanDemo`
 - 测试产出：`TodoTrackerTest` 25 个 + `PlanReminderHookTest` 10 个，共 35 个全绿全离线
@@ -527,3 +528,22 @@
   2. PowerShell 下 `-Dsurefire.failIfNoSpecifiedTests=false` 必须整体加引号，否则参数在点号处被切断，Maven 报「Unknown lifecycle phase .failIfNoSpecifiedTests=false」
 - 待学习者验收：`lessons/02-subagent.md` 的 7 道验收题，重点是第 1 题（隔离了什么、没隔离什么，为什么不是沙箱）、第 5 题（递归委派哪道防线真正生效）和第 7 题（`shutdown()` 不写会怎样）
 - 下一次主任务：**阶段 9 第 3 课 产物落盘与上下文压缩**（`code/chapters/ch08`、`ch09`）—— 工具结果写文件、分层裁剪、压缩时不能丢审计记录
+
+### 本期记录：对着教材做重构检查，修掉一个安全回归
+
+- 本次目标不是新交付，是**拿教材当基准审自己已写的代码**。派了五条并行核查线（文档真实性、章节映射、ch01-04 对照、重构健康度、ch05-06 对照）
+- **最重要的发现是一个安全回归**：`HookedAgentLoop` 复制骨架时整块漏掉了破坏性闸门（连 `ToolEffect` 都不在 import 列表里）。不配策略时 `delete_device` 直接落副作用 —— 也就是说「接了 Hook 和权限的循环」防护**比最原始的 `AgentLoop` 还弱**，而恰恰是这种循环最容易让人以为更强。三个循环各自的单测都是绿的，因为**没有任何测试同时看着三份**
+- 这个回归我没只靠读代码断言，写了两个探针实测：同一个 `delete_device` 喂给两个循环，`AgentLoop` 给 `blocked_destructive`／副作用 `[]`，`HookedAgentLoop` 给 `executed`／副作用 `[DELETED]`。修完再跑，两边都拦住
+- 修复清单：破坏性兜底闸门；`SubagentConfig` 的 `policy` 改必填（null 会让循环整段跳过裁决，是 `task` 变提权路径的缝）；Stop Hook 续写时丢模型答复；幂等键与有效参数错位（改 `HookRegistry` 让 `call` 和 `arguments` 同源）；`todo_write` 拒绝未知字段
+- **补了 `ToolRoundObserver` 扩展点，并订正了上期一条错误结论。** 详见上一期记录里那条「后续订正」。教训单独记：**断言「教材没有某个机制」之前，必须回去读教材同章的 `core/loop.ts`。**「我的实现没有 X」和「教材没有 X」是两件事，我把后者写成了前者
+- 新增防漂移测试 `LoopBehaviorParityTest`：三个循环跑同一组不变量（破坏性不执行、只读放行、白名单拦截）。破坏性那条的结局标签三份不同（`blocked_destructive` vs `permission_denied`），所以断言的是「handler 没执行」这个真正通用的不变量，不假装三份实现相同
+- **两个测试都做了变异验证**，因为「修好后通过」证明不了测试有效：把闸门改成 `false &&`、把 guidance 改成 append 进历史，各跑一次，确认对应那一条立刻挂、其余仍绿（说明断言精准而非笼统）。验完撤销并 grep 确认无残留
+- 评估集从 26 行扩到 29 行（无策略破坏性不执行、提醒不进历史、`todo_write` 拒未知字段）
+- 全量 **327 个测试**，0 失败 0 错误，3 跳过（真实 Redis 缺 `REDIS_PASSWORD`）。两个真实模型调用测试因本机 PKIX 证书问题排除，**它们没有跑，不是通过了**
+- 路线图两处结构性修正：ch07（Skill 按需加载）从阶段 10 挪进阶段 9 作第 3 课 —— 教材 `ch10` 的动态 Prompt 直接 `import SkillRegistry`，原顺序会让第 6 课缺前置；域重映射从阶段 8 的局部说明升级为 roadmap 的「Java 复刻的域约定」全局小节，写明进入第 4/5 课前必须二选一
+- 过程中的三个坑，如实记：
+  1. **和子代理撞车**：我的测试文件被并行子代理的探针覆盖丢失，重建时才发现。同一工作区并行写文件有风险
+  2. `sed` 漏了**跨行**的构造调用（`SubagentToolTest:314` 的 `hooks, null`），跑测试才暴露。批量替换后必须跑测试，不能只看 grep 计数
+  3. **总数算错**：把 327 加成了 325，还写进了文档和 commit message。逐模块数字都对，是相加错了 —— 报数字之前要么用工具核，要么算两遍
+- 另一件如实记的事：修复当时我只加了 `ToolRoundObserver` 接口并接进循环，**没让任何生产类实现它**（`TodoTracker` 缺 `implements`、`PlanDemo` 仍走 Hook），而文档已经写成「缺口已补上」。这是过早声称完成。本期后半补齐：`TodoTracker implements ToolRoundObserver`，`PlanDemo` 场景五改成两条路径正面对比，跑出来 Hook 路径累计 5 次提醒、观察器 2 次
+- 下一次主任务不变：**阶段 9 第 3 课 Skill 按需加载**（`code/chapters/ch07`）
