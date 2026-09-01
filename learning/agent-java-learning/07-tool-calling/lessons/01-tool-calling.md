@@ -169,7 +169,7 @@ messages.add(AgentMessage.toolResult(call.getId(), result.getContent()));
 
 ## 代码与测试
 
-主代码（`lesson04` 包）：
+主代码（`learn.agent.llm.tool` 包）：
 
 - `ToolEffect.java` — 副作用等级（READ / WRITE / DESTRUCTIVE），决定「执行前要不要挡一道」
 - `ToolCall.java` — 模型发起一次工具调用的请求（id、name、arguments）

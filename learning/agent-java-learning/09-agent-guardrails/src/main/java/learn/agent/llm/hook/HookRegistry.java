@@ -245,7 +245,25 @@ public final class HookRegistry {
             }
         }
         // deepCopy 之后 Hook 手里的引用改不到这一份。
-        return PreparedToolCall.ready(originalCall, definition, arguments.deepCopy());
+        JsonNode safeArguments = arguments.deepCopy();
+
+        // 关键一行：ToolCall 也要跟着重建，让 rawArguments 和 arguments <b>同源</b>。
+        //
+        // 为什么必须这样。原先这里直接把 originalCall 传下去，于是产物里
+        // 「arguments 是 Hook 改过的、call.rawArguments 还是模型原来那份」。
+        // 任何按 rawArguments 计算的东西就都错位了 —— 幂等键正是其中一个：
+        // ToolCallMemo.keyOf 只看「工具名 + rawArguments」，结果
+        //   · Hook 把两次不同的原文改成不同参数 → 键相同 → 第二次错吃第一次的缓存
+        //     （裁决和 trace 记的是新参数，回传给模型的却是旧参数的结果，
+        //      这是「批准 A、执行 B」的缓存版本）；
+        //   · Hook 把两次不同的原文收敛成同一份参数 → 键不同 → 同一件事做两遍，
+        //     对写工具就是重复副作用。
+        //
+        // id 和 name 沿用原来的：三道锁刚刚校验过它们必须一致，重建时改动
+        // 反而会让「回传结果配错模型的哪次调用」重新变成可能。
+        ToolCall alignedCall = new ToolCall(
+                originalCall.getId(), originalCall.getName(), safeArguments.toString());
+        return PreparedToolCall.ready(alignedCall, definition, safeArguments);
     }
 
     /** 按 javadoc 表格里那六条规则合并两个结果。 */

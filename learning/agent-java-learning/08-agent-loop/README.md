@@ -31,7 +31,8 @@ $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'
 mvn -o -pl 08-agent-loop -am test
 ```
 
-15 个测试，全部离线。
+`-am` 会连带跑上游模块的测试，控制台总数比本模块大得多。本模块自己有 15 个测试，
+全部离线；只想看这些，加 `-Dtest=` 指定测试类。
 
 ## 依赖
 

@@ -20,6 +20,7 @@ import learn.agent.llm.tool.ToolRegistry;
 import learn.agent.llm.loop.RoundTrace;
 import learn.agent.llm.loop.StopReason;
 import learn.agent.llm.loop.ToolCallMemo;
+import learn.agent.llm.loop.ToolRoundObserver;
 import learn.agent.llm.loop.ToolTimeoutGuard;
 import learn.agent.llm.loop.TraceIdGenerator;
 import learn.agent.llm.permission.GuardedTrace;
@@ -73,12 +74,37 @@ public class HookedAgentLoop {
     private final ToolTimeoutGuard timeoutGuard;
     private final TraceIdGenerator traceIdGenerator;
 
-    /** 第 6 课的权限策略。允许为 null：本课的重点是 Hook，不强制配权限。 */
+    /**
+     * 第 6 课的权限策略。允许为 null：本课的重点是 Hook，不强制配权限。
+     *
+     * <p><b>但 null 不等于「不设防」。</b>没有策略时，破坏性工具由
+     * {@code executeWithBoundaries} 里那道兜底闸门拦下（和第 5 课
+     * {@code AgentLoop} 同一条规则）。缺了那道闸门会出现一个很反直觉的结果：
+     * 功能更全的循环反而比第 5 课那个更容易造成不可逆副作用。</p>
+     */
     private final PermissionPolicy policy;
 
     /** 本课的主角。为 null 时用一个空注册表，全部事件都是空队列。 */
     private final HookRegistry hooks;
 
+    /**
+     * 请求级观察器。允许为 null（没有观察器时行为和以前完全一致）。
+     *
+     * <p><b>它和 Hook 不是一回事，这一点是本类最容易读错的地方。</b>
+     * Hook 的每一种返回值都在<b>改变对话</b>：改参数、改结果、拦下、续写，
+     * 连 {@code additionalContext} 也是 append 进 {@code messages} 永久留下。
+     * 而观察器的 {@code beforeModel()} 要的恰恰相反 ——
+     * <b>只影响这一次请求，发完就丢，不进历史。</b></p>
+     *
+     * <p>所以「用 Hook 实现陈旧提醒」做不出正确语义：提醒会在历史里堆积，
+     * 跑三十轮攒下十条一样的话，每轮都为它付 token，还污染了可回放的历史
+     * （那些话没有任何人说过）。这不是 Hook 写得不好，是它的设计目标决定的。</p>
+     *
+     * @see ToolRoundObserver
+     */
+    private final ToolRoundObserver observer;
+
+    /** 不带观察器的构造，保持原有调用点一行不改。 */
     public HookedAgentLoop(String model,
                            ModelClient client,
                            ToolRegistry registry,
@@ -88,6 +114,20 @@ public class HookedAgentLoop {
                            TraceIdGenerator traceIdGenerator,
                            PermissionPolicy policy,
                            HookRegistry hooks) {
+        this(model, client, registry, context, maxRounds, toolTimeoutMillis,
+                traceIdGenerator, policy, hooks, null);
+    }
+
+    public HookedAgentLoop(String model,
+                           ModelClient client,
+                           ToolRegistry registry,
+                           ToolContext context,
+                           int maxRounds,
+                           long toolTimeoutMillis,
+                           TraceIdGenerator traceIdGenerator,
+                           PermissionPolicy policy,
+                           HookRegistry hooks,
+                           ToolRoundObserver observer) {
         if (model == null || model.trim().isEmpty()) {
             throw new IllegalArgumentException("model 不能为空");
         }
@@ -115,6 +155,7 @@ public class HookedAgentLoop {
         this.traceIdGenerator = traceIdGenerator;
         this.policy = policy;
         this.hooks = hooks == null ? new HookRegistry() : hooks;
+        this.observer = observer;
     }
 
     /**
@@ -138,10 +179,27 @@ public class HookedAgentLoop {
         boolean stopHookActive = false;
 
         for (int round = 1; round <= maxRounds; round++) {
+            // 观察器的请求级指导。关键在于它拼进的是 requestMessages 这个<b>临时列表</b>，
+            // 不是 messages 本身 —— 发完这一次请求就丢掉，历史里不留痕。
+            //
+            // 为什么每轮只调一次：beforeModel() 有副作用（读取即清零），
+            // 多调一次就会把本该发出的提醒吞掉。所以先取出来存成局部变量，
+            // 再拼进请求，绝不在同一轮里调第二次。
+            List<ChatMessage> guidance = observer == null
+                    ? Collections.<ChatMessage>emptyList()
+                    : observer.beforeModel();
+            List<ChatMessage> requestMessages;
+            if (guidance.isEmpty()) {
+                requestMessages = messages;
+            } else {
+                requestMessages = new ArrayList<ChatMessage>(messages);
+                requestMessages.addAll(guidance);
+            }
+
             long modelStart = System.currentTimeMillis();
             ChatResponse response;
             try {
-                response = client.chat(new ChatRequest(model, messages, 0.0, 1024));
+                response = client.chat(new ChatRequest(model, requestMessages, 0.0, 1024));
             } catch (RuntimeException e) {
                 long millis = System.currentTimeMillis() - modelStart;
                 trace.addRound(new RoundTrace(round, "error", null, null, null,
@@ -166,6 +224,17 @@ public class HookedAgentLoop {
             if (response.getFinishReason() != FinishReason.TOOL_CALLS) {
                 trace.addRound(new RoundTrace(round, finishWire, null, null, null, null,
                         modelMillis, 0L, promptTokens, completionTokens));
+
+                // 模型这条答复必须先进历史，再问 Stop。两个理由，缺一条都会出错：
+                //
+                // 1) Stop Hook 要靠历史判断「到底做完没做完」，而它正在裁决的
+                //    就是这条答复。不先入历史，Hook 拿到的是 [system, user] ——
+                //    它看不见自己要裁决的那句话。
+                // 2) 续写时下一轮请求的历史里必须有它。少了这条，模型看不见
+                //    自己上一轮说过什么，续写就变成了「凭空接着说」。
+                //
+                // 工具轮在下面 :252 有对应的一行，最终答复这条分支原先漏了。
+                messages.add(ChatMessage.assistant(response.getContent()));
 
                 // Stop：最后一次「其实还没完」的机会。异常刻意不捕获。
                 HookResult stopHook = hooks.runStop(messages, stopHookActive);
@@ -206,6 +275,20 @@ public class HookedAgentLoop {
 
             messages.add(AgentMessage.toolResult(call.getId(), outcome.result.getContent())
                     .toChatMessage());
+
+            // 记账放在工具结果<b>已经进历史之后</b>，和教材同一个位置。
+            //
+            // 为什么不能提前：观察器可能在 beforeModel() 里读状态做判断，
+            // 而「这一轮到底算不算走完了」的答案只有在结果落进历史之后才确定。
+            // 提前记账会让观察器看到一个 assistant 消息已入、tool 结果未入的
+            // 半成品状态 —— 那一刻的历史是不配对的。
+            //
+            // 这里传的是单元素列表，因为本循环一轮只解一个 tool call
+            // （ToolCallCodec.decode 返回单个）。教材传的是整轮的工具名数组。
+            // 对 TodoTracker 来说两者等价：它只关心「这一轮里有没有 todo_write」。
+            if (observer != null) {
+                observer.recordToolRound(Collections.singletonList(call.getName()));
+            }
             messages.addAll(outcome.additionalContext);
 
             // PostToolUse 要求收手：不再跑下一轮，把当前结果当作结局。
@@ -276,6 +359,21 @@ public class HookedAgentLoop {
                 return new Outcome("permission_denied", decision.toToolResult(), decision,
                         preHook.getAdditionalContext(), false);
             }
+        } else if (effective.getDefinition().getEffect().requiresConfirmation()) {
+            // 没配策略时的兜底闸门，和第 5 课 AgentLoop 那道是同一条。
+            //
+            // 为什么必须有这个 else：策略为 null 表示「本课不演示权限系统」，
+            // 不表示「不可逆操作可以随便执行」。少了它，破坏性工具在无策略时
+            // 直接落副作用 —— 那比第 5 课那个还没有权限系统的循环更危险，
+            // 因为读代码的人会以为「接了 Hook 和权限的循环」防护更强。
+            //
+            // 有策略时不走这里：策略自己会对 DESTRUCTIVE 给出 ask 默认，
+            // 在这儿再拦一次会让「谁做的决定」在审计里说不清。
+            return new Outcome("blocked_destructive", ToolExecutionResult.success(
+                    "工具 " + effective.getDefinition().getName()
+                            + " 需要人工确认后才能执行，"
+                            + "请向用户说明将要进行的操作并等待确认。"),
+                    null, preHook.getAdditionalContext(), false);
         }
 
         ToolExecutionResult result;

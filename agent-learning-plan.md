@@ -28,7 +28,7 @@
 | 6 | Structured Output 与 Tool Calling | ch02 | DONE | `06-structured-output` 52 个测试（两层校验、只出预览）+ `07-tool-calling` 17 个测试（`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传） |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | DONE | `08-agent-loop`：`run` 返回 `AgentTrace` 而非字符串、工具超时、重复调用幂等、每轮 trace；15 个测试 |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | DONE | `09-agent-guardrails`：权限四态归约 36 个测试 + Hook 四事件与三道锁 33 个测试，共 69 个 |
-| 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | NOT_STARTED |  |
+| 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | IN_PROGRESS | 第 1 课会话计划 + 第 2 课子 Agent 已完成：`10-context-engineering` 的 `plan` 包，48 个离线测试（tracker 25 + 桥接 10 + 子 Agent 13）；余三课待做 |
 | 10 | RAG 与 Skill 按需加载 | ch07 | NOT_STARTED |  |
 | 11 | API 韧性与任务系统 | ch11–ch14 | NOT_STARTED |  |
 | 12 | LangGraph 状态与工作流 | — | NOT_STARTED |  |
@@ -43,7 +43,7 @@
 
 | 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
-| 最小评估集 | 6 | **完成** | 已建 `99-minimal-eval` 模块的 `learn.agent.eval.MinimalEvaluationSetTest`：跨阶段 6/8 的回归基线，改完 `mvn -o test` 即跑 |
+| 最小评估集 | 6 | **完成** | 已建 `99-minimal-eval` 模块的 `learn.agent.eval.MinimalEvaluationSetTest`：跨阶段 6/8/9 的回归基线共 26 行，改完 `mvn -o test` 即跑 |
 | Trace 与结构化日志 | 7 | **完成** | 已建 `AgentTrace`/`RoundTrace`：trace id + 每轮工具名、`tool_call_id`、结局、耗时、token；`toLogLine()` 输出 `key=value` 可 grep |
 | 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 至 8 各课的文档均已含「常见面试题」 |
 
@@ -53,10 +53,11 @@
 - 本阶段目标：让 Agent 在长任务里不失控 —— 会话计划快照、上下文压缩、记忆机制
 - 为什么现在学：阶段 5 到 8 已经能跑完一轮完整的「模型选工具 → 程序执行 → 裁决与 Hook」，但轮数一多上下文就爆。长任务失败通常不是模型不够聪明，是上下文管理失控
 - 前置知识：阶段 7 的 `AgentTrace`（压缩要先有可裁剪的结构）、阶段 8 的裁决与 Hook（压缩不能把审计记录压掉）
-- 阶段状态：NOT_STARTED
+- 阶段状态：IN_PROGRESS（5 课中前 2 课已完成）
 - 主教材：`code/chapters/ch05`、`ch06`、`ch08`、`ch09`、`ch10`
 - 阶段 5 至 8 的模块与文档路径见下方「已完成内容」，每个模块自带 README 导航
-- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 234 个测试）
+- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 311 个测试，3 跳过为缺 `REDIS_PASSWORD` 的真实 Redis）
+- 本阶段五课进度：第 1 课会话计划、第 2 课子 Agent **已完成**；第 3 课产物落盘与压缩、第 4 课文件记忆、第 5 课动态 Prompt 组装待做
 
 ## 已完成内容
 
@@ -101,6 +102,8 @@
 - 四道有序工具边界：prepare（零副作用）→ 破坏性闸门 → 幂等缓存 → 超时执行。破坏性闸门在缓存之前，因为「不执行」不需要缓存
 - 幂等键故意不含 `tool_call_id`（每次都不同，算进去永不命中）；失败结果不缓存，避免一次偶发超时在整个会话里变成永久失败
 - 第五课 15 个测试全绿（`AgentLoopTest` 10 + `ToolCallMemoTest` 5）；`TraceIdGenerator` 接口让 trace id 在测试里可固定
+- 已生成阶段 9 第 1 课：`10-context-engineering` 会话计划。`TodoTracker` 只收完整快照，`beforeModel()` 给请求级临时提醒，`PlanReminderHook` 接进阶段 8 的循环；35 个离线测试
+- 已生成阶段 9 第 2 课：子 Agent。`task` 工具隔离消息历史、共享 Hook 与权限策略、两道防线封死递归委派；13 个离线测试
 
 ## 需要复习
 
@@ -120,9 +123,11 @@
 
 ## 下一阶段
 
-- 阶段 9 上下文工程（计划、压缩、记忆），主教材 `code/chapters/ch05`、`ch06`、`ch08`、`ch09`、`ch10`
-- 前置已就位：阶段 7 的 `AgentTrace` 给出可裁剪的结构，阶段 8 的裁决与审计给出「压缩时不能丢什么」的下界
-- 阶段 5 至 8 的交付明细见「已完成内容」，模块与包路径见各模块 README
+- 阶段 9 第 3 课**产物落盘与上下文压缩**（教材 `code/chapters/ch08`、`ch09`）：工具结果写文件只回路径、分层裁剪、压缩时不能丢审计
+- 阶段 9 五课的进度：第 1 课会话计划、第 2 课子 Agent **均已完成**，第 3 至 5 课（产物落盘与压缩、文件记忆、动态 Prompt 组装）未开始
+- 第 1 课留下的伏笔：`PlanReminderHook` 证明 Hook 表达不了请求级临时上下文，这是第 5 课引入 Provider 的动机，届时要回头把提醒改接到 Provider 上
+- 第 2 课留下的伏笔：子 Agent 只回一句结论，**那句结论没有落盘**。第 3 课把产物写文件之后，委派的结论也该走同一条路 —— 回路径而不是回全文
+- 阶段 5 至 9 的交付明细见「已完成内容」，模块与包路径见各模块 README
 
 ### 已解决：阶段与模块编号对齐
 
@@ -133,7 +138,7 @@
 
 ### 贯穿项
 
-- **最小评估集**：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，19 行跨阶段回归基线。它依赖全部上游模块，所以必须留在最末端，不能被任何模块依赖。每进入一个新阶段往里加 3-5 行
+- **最小评估集**：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，26 行跨阶段回归基线。它依赖全部上游模块，所以必须留在最末端，不能被任何模块依赖。每进入一个新阶段往里加 3-5 行
 - **Trace 与结构化日志**：已补（`AgentTrace`/`RoundTrace`，阶段 7）。做成内存里可断言的对象而不是日志行：测试能直接断言「第 2 轮调了哪个工具、为什么停」，不用 grep stdout；后续接日志框架时序列化即可，不必重新找埋点位置
 
 ### 阶段 5 收尾可选项
@@ -472,3 +477,53 @@
 - 离线环境注意：`mvn -o install` 装不了（`maven-install-plugin:3.1.2` 及其几个依赖不在本地仓库），但 `mvn -o test` 可以 —— reactor 直接从兄弟模块的 `target/classes` 解析依赖，不需要先 install
 - 回滚点：拆分前打了 tag `pre-module-split`
 - 下一次主任务不变：**阶段 9 上下文工程**（会话计划、上下文压缩、记忆机制）
+
+### 本期记录：阶段 9 第 1 课（会话计划与陈旧提醒）
+
+- 本次目标：阶段 9 开篇。让 Agent 在长任务里不忘记自己要干什么 —— 会话计划快照 + 陈旧提醒
+- 新模块 `10-context-engineering`，包名 `learn.agent.llm.plan`。依赖链延长成 `05 → 06 → 07 → 08 → 09 → 10 → 99`，`99` 仍在最末端
+- **没有再写第四个循环骨架。** 第 6 课那笔设计债（`GuardedTrace` 之后又抄一遍循环）本来要在这里第三次发生，这次改成复用阶段 8 的 Hook 扩展点：`PlanReminderHook` 注册在 `POST_TOOL_USE` 上，循环一行未改。这是阶段 8 那套扩展点第一次被下游真正消费，也算对它的一次验收
+- 核心设计一：**只收完整快照，不提供 `todo_update(index, status)`**。增量的代价是模型得记住下标，而它记不住 —— 猜错下标会把「补测试」标成完成，而实际完成的是「接设备」，这种错不报错，只是静默脱节。完整快照强迫模型每次重读整个计划，这个「重读」本身就是对抗遗忘的机制，不是副作用
+- 核心设计二：**三态封死**（`pending`/`in_progress`/`completed`）。加 `blocked`/`deferred` 会让计划从进度记录退化成借口清单 —— 模型会把「我不想做」写成 `deferred`。三态保证每项只能回答一个问题：做完了没有
+- 核心设计三：**提醒是请求级临时消息，读取即清零**。`beforeModel()` 有副作用、不是纯查询。写进历史的话，跑三十轮会攒下十条一模一样的「保持计划更新」，每轮都为它付 token，还污染了可回放的历史（那些话没有任何人说过）
+- 核心设计四：`todo_write` 是 **WRITE 不是 DESTRUCTIVE**。副作用等级按撤销的真实成本定，不按听起来危险不危险定。标 DESTRUCTIVE 会让模型每次更新计划都弹确认框，用户会直接关掉整个机制
+- **本课最值得记的一个发现**：Hook 表达不了「请求级临时上下文」。它的 `additionalContext` 会被 append 进 messages，从此永久占预算 —— 也就是说走 Hook 这条路**做不出** `beforeModel()` 的语义。这不是取舍失误，是 Hook 的设计目标决定的：它的每种返回值（改参数、改结果、拦下、续写）都在**改变对话**，而提醒要的恰恰是「不改变对话，只影响下一次请求」，这在 Hook 的词汇表里没有对应物。正确的位置是一个「每次请求前被问一遍」的扩展点，也就是第 5 课的 Provider。两条路都留下了：`beforeModel()` 保住教材语义并有单测护住，Hook 版证明它接得进现有循环、同时暴露出现有循环缺什么
+- 如实记下的第二个限制：`POST_TOOL_USE` 只在工具**真的执行了**之后触发，被权限拒绝／被 prepare 拦下／命中幂等缓存的轮次不计入陈旧计数。从「计划有没有推进」看这是对的，但和 `recordToolRound` 的字面语义有出入
+- 代码产出：`TodoStatus`、`TodoItem`、`TodoWriteValidator`、`TodoTracker`、`PlanReminderHook`、`PlanDemo`
+- 测试产出：`TodoTrackerTest` 25 个 + `PlanReminderHookTest` 10 个，共 35 个全绿全离线
+- 评估集从 19 行扩到 23 行（完整快照可读回、增量补丁被拒、三轮未更新才提醒、写计划那轮重置计数）
+- 全量：**292 个测试**，0 失败 0 错误，3 跳过（真实 Redis 缺 `REDIS_PASSWORD`）。另有 2 个既有的真实模型调用测试因本机 PKIX 证书问题失败，与本次改动无关，本次用 `-Dtest=!HttpModelClientTest#shouldCallRealModelWhenConfigured+shouldFailFastWithInvalidApiKey` 排除
+- 端到端：`PlanDemo` 五个场景按预期输出，含「三处错误一次列全」和场景五那个「提醒被 append 进历史」的反面证据
+- 过程中被编译器和测试抓到的三处问题（都是我自己写错，如实记）：
+  1. 桥接类方法定义叫 `install`，7 处调用写的是 `registerOn` —— 又一次凭记忆写调用名，和第 3 课那次（`failure` vs `fail`）同一个毛病
+  2. `TodoTracker` 的工具结果返回 `render()` 的中文文本，测试按 JSON 断言。**改的是实现不是测试** —— 教材 `ch05` 回传确定性 JSON 是对的：模型刚写进来的就是 JSON，回一份同构 JSON 它才能逐字段对比；回中文列表它得先在脑子里翻译一遍，那步翻译可能把差异抹掉。`render()` 保留给 demo 和日志，两个受众两种格式
+  3. 评估集类注释写着「15 条基线用例」，实际早就 19 条、现在 23 条 —— 注释里写死数字必然过期，已改成不写死
+- 环境记录：WSL 侧没有 Linux JDK，Maven 必须走 `powershell.exe` 调 Windows 的 JDK 17；Windows 控制台输出是 UTF-16 且中文在管道里会乱码，看失败详情要先 `iconv -f UTF-16LE` 转码
+- 待学习者验收：`lessons/01-session-plan.md` 的验收题，重点是第 1 题（为什么不提供增量接口）和最后一题（为什么提醒不能写进历史 / Hook 为什么表达不了它）
+- 下一次主任务：**阶段 9 第 2 课 子 Agent**（`code/chapters/ch06`）—— 隔离历史、共享运行边界、禁止递归委派、限制轮数
+
+### 本期记录：阶段 9 第 2 课（子 Agent）
+
+- 本次目标：第 1 课让主 Agent 记住要干什么，但没减少**探索过程本身**的上下文。本课把一段多轮探索挪出主对话：派一个隔离的子 Agent 去查，主 Agent 只收一句有证据的结论
+- **开局状态：上期留下的代码是半成品，编译不过。** 本期第一件事是修它，不是从零写。`SubagentTool`/`SubagentConfig`/两个工厂接口和 13 个测试都已存在，但 `mvn test-compile` 挂在两处：
+  1. 测试调 `new SubagentTool(config)`，主类要 `(model, config, traceIdGenerator)` 三个参数
+  2. 测试的 `AuditSink` 实现了 `record(decision)`，接口是 `record(request, decision)`
+- **两处都改的是主类/测试签名，不是绕过。** 第 1 处选择「让 config 吃下 model 和 traceIdGenerator」而不是「让测试传三个参数」：委派需要的全部信息应当在一个对象里，否则会出现「模型名从构造参数来、工具从 config 来」的两个来源。第 2 处是测试写错了上游接口，改测试
+- 核心设计一：**隔离的只有消息历史**。父子共享同一个 JVM、同一个 `ToolContext`（同一身份、同一场景）、同一组 Hook、同一份权限策略，子 Agent 的副作用**会保留**。它不是沙箱 —— 这是本课最危险的误读，README 和文档都写明了
+- 核心设计二：**权限必须共享，而且不能更宽**。否则 `task` 就是提权路径：父 Agent 删不掉受保护设备，但它可以派个子 Agent 去删。提示词注入的标准手法正是「换个身份再试一次」。`shouldShareParentPermissionPolicy` 用「父策略 DENY inspect → 子 Agent 的 handler 一次没执行 + 留下审计」把这条钉住
+- 核心设计三：**依赖用工厂，不用实例**。历史隔离靠新建循环，依赖隔离靠工厂，少任何一半子 Agent 都不是真的从零开始。共享一个 `FakeModelClient` 时第二次委派会接着读第一次剩下的响应队列；生产里共享的是连接状态、重试计数、熔断器状态，问题一模一样
+- 核心设计四：**递归委派两道防线，真正生效的是第二道**。提示词里「不要再委派」是软约束，模型可以不听；子 Agent 的注册表里根本没有 `task` 才是硬的。另加一道**针对开发者**的检查：`toolsFactory` 返回的注册表若含 `task` 直接报配置错误 —— 最可能打开这个洞的不是模型，是图省事直接返回父注册表的人
+- 核心设计五：**`hooks` 不许传 null，`policy` 允许**。两个都是治理边界，但「没配」的含义不同：`policy` 为 null 是明确的「本次不启用权限系统」，而 `hooks` 为 null 读起来像「子 Agent 不受 Hook 管」，恰好是本课要否定的那句话。没有 Hook 时传空注册表 —— 「受管但当前无规则」和「不受管」是两件事
+- 核心设计六：**失败只回结构化错误码，不回子 Agent 最后一条工具结果**。轮数耗尽时最后一条工具结果通常看着像个正常答案，回传它父 Agent 会以为子任务成功了。异常文本也不回传：里面可能有路径、SQL、配置键名，进了父上下文就等于进了模型可见范围
+- **Java 特有的一笔（教材没有）**：`HookedAgentLoop` 内部的 `ToolTimeoutGuard` 持有线程池，`runTask` 的 `finally` 里必须 `shutdown()`。不写就是**每次委派泄漏一个线程池**。教材是 Node 单线程模型，照抄会漏掉这一句
+- 代码产出：`ModelClientFactory`、`ToolRegistryFactory`、`SubagentConfig`、`SubagentTool`（本期修复至可编译可运行），文档 `lessons/02-subagent.md`
+- 测试产出：`SubagentToolTest` 13 个全绿全离线；模块累计 48 个（tracker 25 + hook 桥接 10 + 子 Agent 13）
+- 评估集从 23 行扩到 26 行（只回结论不漏中间轨迹、父策略对子 Agent 生效、递归委派被拦）
+- 全量：**311 个测试**，0 失败 0 错误，3 跳过（真实 Redis 缺 `REDIS_PASSWORD`）。上期那个 PKIX 证书问题这次没出现，两个真实模型调用测试**不加任何排除**跑过了
+- 这个数字我第一次记错了，记的是 309。原因是我把上期那条 `-Dtest=!HttpModelClientTest#...` 排除参数顺手带进了本次全量验证 —— 上期加它是为了绕开 PKIX 证书失败，本次证书问题已经没有了，参数却还在。于是那两个真实模型测试根本没跑，而我在记录里写成了「本次真实模型调用测试也通过了」。查 `surefire-reports` 的 XML（`tests="4" skipped="0"`）才发现它们不在本次运行里。**教训：「通过」和「没跑」在控制台摘要里长得一样，声称某个测试通过之前要确认它真的在运行列表里**，而不是只看 BUILD SUCCESS
+- **本课没有 demo。** 第 1 课有 `PlanDemo` 五场景，本课只有单测。`PlanDemo` 里没加子 Agent 场景，文档也没声称有 —— 如实记，想补的话是下次的小任务
+- 过程中的两个记录：
+  1. 又一次「注释里写死数字」：评估集类注释写着「23 条基线用例」。上期已经因为同样的问题改过一次（15 → 19 → 23），当时的结论就是「不写死」，但那次只改了一处措辞、没把数字彻底删掉。这次直接删掉数字，改成「全部通过」
+  2. PowerShell 下 `-Dsurefire.failIfNoSpecifiedTests=false` 必须整体加引号，否则参数在点号处被切断，Maven 报「Unknown lifecycle phase .failIfNoSpecifiedTests=false」
+- 待学习者验收：`lessons/02-subagent.md` 的 7 道验收题，重点是第 1 题（隔离了什么、没隔离什么，为什么不是沙箱）、第 5 题（递归委派哪道防线真正生效）和第 7 题（`shutdown()` 不写会怎样）
+- 下一次主任务：**阶段 9 第 3 课 产物落盘与上下文压缩**（`code/chapters/ch08`、`ch09`）—— 工具结果写文件、分层裁剪、压缩时不能丢审计记录

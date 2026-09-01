@@ -42,8 +42,15 @@ import learn.agent.llm.hook.HookedAgentLoop;
 
 import learn.agent.llm.client.ChatMessage;
 
+import learn.agent.llm.plan.ModelClientFactory;
+import learn.agent.llm.plan.SubagentConfig;
+import learn.agent.llm.plan.SubagentTool;
+import learn.agent.llm.plan.TodoTracker;
+import learn.agent.llm.plan.ToolRegistryFactory;
+
 import learn.agent.llm.client.FakeModelClient;
 import learn.agent.llm.client.FinishReason;
+import learn.agent.llm.client.ModelClient;
 import learn.agent.llm.client.TokenUsage;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -61,8 +68,12 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 最小评估集：跨第 3 课（Structured Output）、第 4 课（Tool Calling）、
- * 第 5 课（Agent Loop）和第 6 课（权限与审计）的回归基线。
+ * 最小评估集：覆盖已完成各阶段（Structured Output、Tool Calling、Agent Loop、
+ * 权限与审计、Hook、上下文工程）的回归基线。
+ *
+ * <p>它 import 了上游每个模块的公开类型，所以本模块依赖全部上游模块，在构建顺序里
+ * 永远排在最末端。覆盖范围会随新阶段交付而扩大，这段注释因此不写死阶段区间 ——
+ * 真正的范围看下面的 import 和表格。</p>
  *
  * <p>贯穿项要求「拿到第一个 Structured Output 就建」，本套件把各条链路的
  * 典型输入与期望结果做成一张可运行的表。每次改动业务代码后跑一遍，
@@ -127,7 +138,11 @@ public class MinimalEvaluationSetTest {
     }
 
     /**
-     * 规则：15 条基线用例全部通过，任何一条挂了都要指出是哪一条。
+     * 规则：基线用例<b>全部</b>通过，任何一条挂了都要指出是哪一条。
+     *
+     * <p>刻意不在注释里写死条数。这里先后写过「15 条」「19 条」「23 条」，
+     * 每次加行都得记得回来改一处不影响编译的数字 —— 不改就是一句假话。
+     * 条数由 {@link #rows()} 决定，注释只说「全部」。</p>
      *
      * <p>这几条链路后面还会反复改（加权限、加日志、换实现）。没有基线，
      * 改完只能靠人工看一遍，改错误码或改 TOOL 回传前缀这类小改动很容易漏掉。</p>
@@ -635,7 +650,215 @@ public class MinimalEvaluationSetTest {
                     return null;
                 }));
 
+        // ---------- 阶段 9 第 1 课：会话计划 ----------
+        rows.add(new Row("完整快照写入后可读回", "三项且状态各就各位",
+                () -> {
+                    TodoTracker tracker = new TodoTracker();
+                    ToolExecutionResult result = writeTodos(tracker,
+                            "{\"todos\":[{\"content\":\"建 schema\",\"status\":\"completed\"},"
+                                    + "{\"content\":\"写 endpoints\",\"status\":\"in_progress\"},"
+                                    + "{\"content\":\"补测试\",\"status\":\"pending\"}]}");
+                    if (result.isError()) {
+                        return "合法快照被拒：" + result.getContent();
+                    }
+                    if (tracker.getTodos().size() != 3) {
+                        return "期望 3 项，实际：" + tracker.getTodos().size();
+                    }
+                    if (tracker.getCompletedCount() != 1) {
+                        return "期望 1 项完成，实际：" + tracker.getCompletedCount();
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("增量补丁被拒绝", "invalid_arguments",
+                () -> {
+                    // 这一行守的是本课最重要的决定：只收完整快照。哪天有人加了
+                    // todo_update，这行会挂 —— 而那正是计划开始漂移的起点。
+                    TodoTracker tracker = new TodoTracker();
+                    ToolExecutionResult result = writeTodos(tracker,
+                            "{\"todos\":{\"index\":2,\"status\":\"completed\"}}");
+                    if (!result.isError()) {
+                        return "增量补丁必须被拒绝";
+                    }
+                    if (!"invalid_arguments".equals(result.getErrorCode())) {
+                        return "期望 invalid_arguments，实际：" + result.getErrorCode();
+                    }
+                    if (!tracker.getTodos().isEmpty()) {
+                        return "被拒的写入不该留下任何状态";
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("三轮未更新计划才提醒", "第 3 轮注入且只注入一次",
+                () -> {
+                    TodoTracker tracker = new TodoTracker();
+                    for (int i = 1; i < TodoTracker.STALE_TOOL_ROUNDS; i++) {
+                        tracker.recordToolRound(Collections.singletonList("list_devices"));
+                        if (!tracker.beforeModel().isEmpty()) {
+                            return "第 " + i + " 轮就提醒了，阈值是 " + TodoTracker.STALE_TOOL_ROUNDS;
+                        }
+                    }
+                    tracker.recordToolRound(Collections.singletonList("list_devices"));
+                    if (tracker.beforeModel().size() != 1) {
+                        return "第 " + TodoTracker.STALE_TOOL_ROUNDS + " 轮应注入 1 条提醒";
+                    }
+                    // 读取即清零：不清零的话此后每轮都会重复注入同一句话。
+                    if (!tracker.beforeModel().isEmpty()) {
+                        return "提醒读取后必须清零，否则会重复注入";
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("写计划的那一轮重置陈旧计数", "todo_write 后不再提醒",
+                () -> {
+                    TodoTracker tracker = new TodoTracker();
+                    for (int i = 0; i < TodoTracker.STALE_TOOL_ROUNDS - 1; i++) {
+                        tracker.recordToolRound(Collections.singletonList("list_devices"));
+                    }
+                    tracker.recordToolRound(Collections.singletonList(TodoTracker.TOOL_NAME));
+                    if (tracker.getNonTodoToolRounds() != 0) {
+                        return "写计划后陈旧计数应归零，实际：" + tracker.getNonTodoToolRounds();
+                    }
+                    if (!tracker.beforeModel().isEmpty()) {
+                        return "刚更新过计划不该收到提醒";
+                    }
+                    return null;
+                }));
+
+        // ---------- 阶段 9 第 2 课：子 Agent ----------
+        rows.add(new Row("子 Agent 只回结论，中间轨迹不进父上下文", "拿到结论且不含工具原文",
+                () -> {
+                    // 这一行守的是本课存在的理由。哪天有人图省事把子 Agent 的
+                    // 工具结果一并回传，这行会挂 —— 那时委派就不再省上下文了。
+                    final List<String> childCalls = new ArrayList<String>();
+                    ToolExecutionResult result = delegate(
+                            subagentTools(childCalls), new PermissionPolicy(), "查清设备状态");
+                    if (result.isError()) {
+                        return "委派应当成功：" + result.getContent();
+                    }
+                    if (!"查过了：radar-01 在线。".equals(result.getContent())) {
+                        return "父 Agent 应只拿到结论，实际：" + result.getContent();
+                    }
+                    // 子 Agent 确实干了活，但那一轮的工具原文没进父上下文。
+                    if (childCalls.isEmpty()) {
+                        return "子 Agent 应当真的调过工具";
+                    }
+                    if (result.getContent().contains("证据：radar-01 在线")) {
+                        return "子 Agent 的工具结果泄漏进了父上下文";
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("父 Agent 的权限策略对子 Agent 生效", "handler 未执行",
+                () -> {
+                    // 本课最重要的边界：隔离的是历史，不是权限。这行挂了意味着
+                    // task 变成了提权路径 —— 模型把想做的事包装成一次委派即可绕过裁决。
+                    final List<String> childCalls = new ArrayList<String>();
+                    PermissionPolicy denyAll = new PermissionPolicy(
+                            Collections.singletonList(new PermissionRule("deny-inspect",
+                                    PermissionBehavior.DENY, "评估集：一律拒绝 inspect",
+                                    new PermissionRule.Matcher() {
+                                        @Override
+                                        public boolean matches(PermissionRequest request) {
+                                            return "inspect".equals(
+                                                    request.getPrepared().getDefinition().getName());
+                                        }
+                                    })),
+                            (ApprovalProvider) null, null);
+                    delegate(subagentTools(childCalls), denyAll, "查清设备状态");
+                    if (!childCalls.isEmpty()) {
+                        return "父策略拒绝的工具在子 Agent 里仍然执行了";
+                    }
+                    return null;
+                }));
+
+        rows.add(new Row("子 Agent 拿不到 task，递归委派被拦", "subagent_configuration_error",
+                () -> {
+                    // 允许递归会让一次调用长出深度不可控的 Agent 树，
+                    // 成本和结束时间都没有上界。
+                    ToolRegistry polluted = new ToolRegistry();
+                    polluted.register(new ToolDefinition(SubagentTool.TOOL_NAME, "冒充的 task",
+                            "{}", ToolEffect.READ, new ToolHandler() {
+                                @Override
+                                public ToolExecutionResult execute(JsonNode arguments,
+                                                                  ToolContext context) {
+                                    return ToolExecutionResult.success("不该被执行");
+                                }
+                            }));
+                    ToolExecutionResult result = delegate(polluted, new PermissionPolicy(),
+                            "试图递归");
+                    if (!result.isError()) {
+                        return "子 Agent 注册表含 task 时必须拒绝委派";
+                    }
+                    if (!"subagent_configuration_error".equals(result.getErrorCode())) {
+                        return "期望 subagent_configuration_error，实际：" + result.getErrorCode();
+                    }
+                    return null;
+                }));
+
         return rows;
+    }
+
+    /** 子 Agent 的注册表：一个只读工具，执行时把调用记进 calls。 */
+    private static ToolRegistry subagentTools(final List<String> calls) {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(new ToolDefinition("inspect", "查看证据", "{}", ToolEffect.READ,
+                new ToolHandler() {
+                    @Override
+                    public ToolExecutionResult execute(JsonNode arguments, ToolContext context) {
+                        calls.add("inspect");
+                        return ToolExecutionResult.success("证据：radar-01 在线");
+                    }
+                }));
+        return registry;
+    }
+
+    /** 走完整的 prepare/invoke 链路跑一次委派，和真实循环里的路径一致。 */
+    private static ToolExecutionResult delegate(final ToolRegistry childTools,
+                                                PermissionPolicy policy,
+                                                String description) {
+        // 子 Agent 的剧本：先查一次证据，再给结论。
+        final FakeModelClient child = new FakeModelClient();
+        child.enqueueResponse(ToolCallCodec.encode(new ToolCall("c1", "inspect", "{}")),
+                FinishReason.TOOL_CALLS, new TokenUsage(100, 20));
+        child.enqueueResponse("查过了：radar-01 在线。", FinishReason.STOP, new TokenUsage(150, 30));
+
+        SubagentConfig config = new SubagentConfig(
+                new ModelClientFactory() {
+                    @Override
+                    public ModelClient create() {
+                        return child;
+                    }
+                },
+                new ToolRegistryFactory() {
+                    @Override
+                    public ToolRegistry create() {
+                        return childTools;
+                    }
+                },
+                new HookRegistry(), policy);
+
+        ToolRegistry parentTools = new ToolRegistry();
+        parentTools.register(new SubagentTool(config).getToolDefinition());
+        PreparedToolCall prepared = parentTools.prepare(new ToolCall("eval-task",
+                SubagentTool.TOOL_NAME,
+                "{\"description\":\"" + description + "\"}"));
+        if (prepared.isFailed()) {
+            return prepared.getError();
+        }
+        return parentTools.invoke(prepared, new ToolContext("eval", scene()));
+    }
+
+    /** 走完整的 prepare/invoke 链路写一次计划，和真实循环里的路径一致。 */
+    private static ToolExecutionResult writeTodos(TodoTracker tracker, String rawArguments) {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(tracker.getToolDefinition());
+        PreparedToolCall prepared = registry.prepare(
+                new ToolCall("eval-todo", TodoTracker.TOOL_NAME, rawArguments));
+        if (prepared.isFailed()) {
+            return prepared.getError();
+        }
+        return registry.invoke(prepared, new ToolContext("eval", scene()));
     }
 
     /** 把阶段名按发生顺序记下来的 Hook。 */

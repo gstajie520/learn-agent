@@ -10,9 +10,13 @@
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>minimal-eval</artifactId>
+    <artifactId>context-engineering</artifactId>
 
-    <!-- 跨阶段最小评估集。依赖全部上游模块，所以必须是最末端模块，不能被任何模块依赖。 -->
+    <!--
+      阶段 9：上下文工程。会话计划、子 Agent、产物落盘与压缩、文件记忆、动态 Prompt。
+      依赖 agent-guardrails：本阶段的提醒注入复用阶段 8 的 Hook 扩展点，
+      不再新写第四个循环骨架。
+    -->
 
     <properties>
         <maven.compiler.source>1.8</maven.compiler.source>
@@ -45,11 +49,6 @@
         <dependency>
             <groupId>learn.agent</groupId>
             <artifactId>agent-guardrails</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>learn.agent</groupId>
-            <artifactId>context-engineering</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

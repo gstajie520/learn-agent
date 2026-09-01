@@ -162,7 +162,7 @@ if (result == null || result.isError()) {
 
 ## 代码与测试
 
-主代码（`lesson05` 包）：
+主代码（`learn.agent.llm.loop` 包）：
 
 - `StopReason.java` — 循环为什么停，五个互斥取值，`isAbnormal()` 一句话判断
 - `RoundTrace.java` — 一轮的完整记录（轮次、工具、outcome、耗时、token），`toLogLine()` 转结构化日志
