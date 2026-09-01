@@ -48,6 +48,8 @@ import learn.agent.llm.plan.SubagentTool;
 import learn.agent.llm.plan.TodoTracker;
 import learn.agent.llm.plan.ToolRegistryFactory;
 
+import learn.agent.llm.skill.SkillRegistry;
+
 import learn.agent.llm.client.FakeModelClient;
 import learn.agent.llm.client.FinishReason;
 import learn.agent.llm.client.ModelClient;
@@ -58,6 +60,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -905,7 +911,113 @@ public class MinimalEvaluationSetTest {
                     return null;
                 }));
 
+        // ---------- 阶段 9 第 3 课：Skill 按需加载 ----------
+        rows.add(new Row("目录只有名称描述，正文要显式加载", "目录无正文且 load_skill 有正文",
+                () -> {
+                    // 这一行守的是本课存在的理由。哪天有人在 renderCatalog 里顺手
+                    // 拼上正文，系统提示就退回「一次性塞一大段」，而且不会报错。
+                    Path ws = Files.createTempDirectory("eval-skill");
+                    try {
+                        writeSkill(ws, "radar-check", "雷达离线排查顺序", "第一步：确认供电。");
+                        SkillRegistry registry = SkillRegistry.scan(ws.toString(), null);
+
+                        String catalog = registry.renderCatalog();
+                        if (!catalog.contains("radar-check")) {
+                            return "目录里应当有名称，实际：" + catalog;
+                        }
+                        if (catalog.contains("确认供电")) {
+                            return "正文泄漏进了目录：" + catalog;
+                        }
+                        String body = registry.loadSkill("radar-check");
+                        if (!body.contains("确认供电")) {
+                            return "显式加载应当返回正文，实际：" + body;
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(ws);
+                    }
+                }));
+
+        rows.add(new Row("扫描不读正文", "坏正文时扫描仍成功",
+                () -> {
+                    // 证明「只读 frontmatter」不是一句口号：正文是非法 UTF-8，
+                    // 只读前半段的实现扫得过去，读全文再切分的实现会当场炸。
+                    Path ws = Files.createTempDirectory("eval-skill-half");
+                    try {
+                        Path dir = Files.createDirectories(
+                                ws.resolve("skills").resolve("half-broken"));
+                        byte[] head = "---\nname: half-broken\ndescription: 前半合法\n---\n"
+                                .getBytes(StandardCharsets.UTF_8);
+                        byte[] bad = new byte[] {(byte) 0xFF, (byte) 0xFE};
+                        byte[] all = new byte[head.length + bad.length];
+                        System.arraycopy(head, 0, all, 0, head.length);
+                        System.arraycopy(bad, 0, all, head.length, bad.length);
+                        Files.write(dir.resolve("SKILL.md"), all);
+
+                        SkillRegistry registry = SkillRegistry.scan(ws.toString(), null);
+                        if (registry.getCatalog().size() != 1) {
+                            return "扫描应当成功并列出 1 条，实际 " + registry.getCatalog().size();
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(ws);
+                    }
+                }));
+
+        rows.add(new Row("load_skill 的坏名字在读文件前被拦", "invalid_arguments",
+                () -> {
+                    // 名字会变成路径的一段，所以必须先验证名字再拼路径。
+                    // 反过来的话，穿越串已经被拼进一个真实 Path，只是碰巧还没读。
+                    Path ws = Files.createTempDirectory("eval-skill-bad");
+                    try {
+                        writeSkill(ws, "alpha", "描述", "正文");
+                        SkillRegistry registry = SkillRegistry.scan(ws.toString(), null);
+
+                        ToolRegistry tools = new ToolRegistry();
+                        tools.register(registry.getToolDefinition());
+                        PreparedToolCall prepared = tools.prepare(new ToolCall("eval-skill",
+                                SkillRegistry.TOOL_NAME, "{\"name\":\"../../etc/passwd\"}"));
+                        ToolExecutionResult result = prepared.isFailed()
+                                ? prepared.getError()
+                                : tools.invoke(prepared, new ToolContext("eval", scene()));
+                        if (!result.isError()) {
+                            return "路径穿越的名字必须被拒绝";
+                        }
+                        if (!"invalid_arguments".equals(result.getErrorCode())) {
+                            return "期望 invalid_arguments，实际：" + result.getErrorCode();
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(ws);
+                    }
+                }));
+
         return rows;
+    }
+
+    /** 造一个 Skill 目录。 */
+    private static void writeSkill(Path workspace, String name, String description,
+                                   String body) throws IOException {
+        Path dir = Files.createDirectories(
+                workspace.resolve("skills").resolve(name));
+        String content = "---\nname: " + name + "\ndescription: " + description
+                + "\n---\n" + body;
+        Files.write(dir.resolve("SKILL.md"), content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 递归删除（评估集清理临时工作区用）。 */
+    private static void deleteRecursively(Path path) throws IOException {
+        if (!Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        if (Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            try (java.util.stream.Stream<Path> children = Files.list(path)) {
+                for (Path child : children.toArray(Path[]::new)) {
+                    deleteRecursively(child);
+                }
+            }
+        }
+        Files.delete(path);
     }
 
     /** 子 Agent 的注册表：一个只读工具，执行时把调用记进 calls。 */

@@ -28,7 +28,7 @@
 | 6 | Structured Output 与 Tool Calling | ch02 | DONE | `06-structured-output` 52 个测试（两层校验、只出预览）+ `07-tool-calling` 17 个测试（`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传） |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | DONE | `08-agent-loop`：`run` 返回 `AgentTrace` 而非字符串、工具超时、重复调用幂等、每轮 trace；15 个测试 |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | DONE | `09-agent-guardrails`：权限四态归约 36 个测试 + Hook 四事件与三道锁 33 个测试，共 69 个 |
-| 9 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | IN_PROGRESS | 第 1 课会话计划 + 第 2 课子 Agent 已完成：`10-context-engineering` 的 `plan` 包，53 个离线测试（tracker 25 + 桥接 10 + 子 Agent 13 + 严格字段 5）；余四课待做 |
+| 9 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | IN_PROGRESS | 前 3 课已完成：`10-context-engineering` 的 `plan`/`skill`/`workspace` 三个包，81 个离线测试（tracker 25 + 桥接 10 + 子 Agent 13 + 严格字段 5 + 工作区边界 14 + Skill 14）；余三课待做 |
 | 10 | RAG 与向量检索 | —（自写 lesson） | NOT_STARTED |  |
 | 11 | API 韧性与任务系统 | ch11–ch14 | NOT_STARTED |  |
 | 12 | LangGraph 状态与工作流 | — | NOT_STARTED |  |
@@ -53,7 +53,7 @@
 - 本阶段目标：让 Agent 在长任务里不失控 —— 会话计划快照、按需加载、上下文压缩、记忆机制
 - 为什么现在学：阶段 5 到 8 已经能跑完一轮完整的「模型选工具 → 程序执行 → 裁决与 Hook」，但轮数一多上下文就爆。长任务失败通常不是模型不够聪明，是上下文管理失控
 - 前置知识：阶段 7 的 `AgentTrace`（压缩要先有可裁剪的结构）、阶段 8 的裁决与 Hook（压缩不能把审计记录压掉）
-- 阶段状态：IN_PROGRESS（6 课中前 2 课已完成）
+- 阶段状态：IN_PROGRESS（6 课中前 3 课已完成）
 - 主教材：`code/chapters/ch05`、`ch06`、`ch07`、`ch08`、`ch09`、`ch10`
 - 阶段 5 至 8 的模块与文档路径见下方「已完成内容」，每个模块自带 README 导航
 - 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 327 个测试，3 跳过为缺 `REDIS_PASSWORD` 的真实 Redis）
@@ -63,12 +63,12 @@
 |---:|---|---|---|---|
 | 1 | 会话计划 | ch05 | **已完成** | — |
 | 2 | 子 Agent | ch06 | **已完成** | — |
-| 3 | Skill 按需加载 | ch07 | 下一个 | 无阻塞。纯内存机制（扫描摘要 + 按名加载），场景域里能原样落地 |
-| 4 | 产物落盘与上下文压缩 | ch08 | 待做 | **有阻塞**：需要先补 `validateToolPairing`（教材 16 处调用，压缩不能压断 tool 配对），并决定「artifact 落盘」在无文件系统的场景域里怎么落 |
-| 5 | 文件记忆 | ch09 | 待做 | **有阻塞**：机制本体是 `manifest.json` + `MEMORY.md` + 文件锁，域重映射在这里绕不过去，必须先做二选一决定 |
+| 3 | Skill 按需加载 | ch07 | **已完成** | 顺带建了 `WorkspaceGuard` 文件边界层，第 4、5 课复用 |
+| 4 | 产物落盘与上下文压缩 | ch08 | 下一个 | 文件层已就绪（第 3 课建的）。还需补 `validateToolPairing` —— 教材 16 处调用，压缩不能压断 tool 配对 |
+| 5 | 文件记忆 | ch09 | 待做 | 文件层已就绪。`manifest.json` + `MEMORY.md` + 文件锁可以照教材做了 |
 | 6 | 动态 Prompt 组装 | ch10 | 待做 | 依赖第 3 课的 `SkillRegistry`（教材 `prompting.ts` 直接 import 它），所以第 3 课必须在它之前 |
 
-- **第 4、5 课的阻塞是已知的、有解的**，不是临时发现：两条路（补受约束的文件工具集 / 降级为纯内存部分）已写进路线图的「Java 复刻的域约定」。四级压缩里 `microCompactHistory`、`snipCompactHistory` 是纯函数，无论选哪条路都能照做
+- **第 4、5 课的阻塞已解除**：那个「补文件层还是降级纯内存」的二选一，在第 3 课选了前者并已落地（`learn.agent.llm.workspace.WorkspaceGuard`，词法关 + 物理关，14 个测试）。这两课现在可以照教材做，不必降级
 - 本阶段的贯穿项动作：每课往 `99-minimal-eval` 加 3-5 行；第 4 课起 trace 里要能看出「哪些结果被压缩过」，否则压缩会变成静默丢数据
 
 ## 已完成内容
