@@ -83,8 +83,8 @@ Agent 开发工程师不是只会调用一个大模型 API，也不是只会背 
 | 6 | Structured Output 与 Tool Calling | 2 | Python + Java | ch02（Structured Output 需自写）；**已交付 `06-structured-output` + `07-tool-calling`** |
 | 7 | 手写 Agent Loop 与工具边界 | 2 | Python/TypeScript | ch01、ch02 |
 | 8 | 权限、Hook 与安全边界 | 2 | Python/TypeScript | ch03、ch04 |
-| 9 | 上下文工程：计划、压缩、记忆 | 3 | Python/TypeScript | ch05、ch06、ch08、ch09、ch10 |
-| 10 | RAG 与 Skill 按需加载 | 2 | Python | ch07（RAG 需自写） |
+| 9 | 上下文工程：计划、压缩、记忆、按需加载 | 3 | Python/TypeScript | ch05、ch06、ch07、ch08、ch09、ch10 |
+| 10 | RAG 与向量检索 | 2 | Python | —（RAG 需自写，教材无独立章节） |
 | 11 | API 韧性与任务系统 | 2 | Python/TypeScript | ch11、ch12、ch13、ch14 |
 | 12 | LangGraph 状态与工作流 | 3 | Python | — |
 | 13 | Java Agent 集成 | 2 | Java | — |
@@ -93,6 +93,39 @@ Agent 开发工程师不是只会调用一个大模型 API，也不是只会背 
 | 16 | 综合项目、评估与求职 | 2 | Java + Python | ch20 + `fw` |
 
 合计约 34 周。阶段 1-4 已占前 8 周，剩余约 26 周。
+
+### Java 复刻的域约定（全局决策，所有后续阶段都受影响）
+
+Java 练习工程 `learning/agent-java-learning` 复刻教材时，<b>把教材的「文件 / shell 工作区」域
+整体换成了「场景 / 设备」域</b>。教材的工具链是 `shell`、`read_file`、`write_file`、`edit_file`、
+`glob`；Java 侧对应的是 `list_device`、`read_device`、`delete_device`、`read_owner`、`inspect`。
+业务载体从「操作工作区里的文件」变成了「管理一张设备清单（雷达 / 摄像头 / 围栏）」，
+受保护设备取代了「工作区外的路径」成为不可越过的硬边界。
+
+<b>为什么换域</b>：学习者已有 Java 后端经验，用熟悉的领域对象（`SceneSnapshot`、
+`DeviceType`、受保护设备）承载「校验 / 权限 / 审计」这些真正要学的机制，比再去啃一个
+文件系统安全边界更快，也更容易讲清「结构正确 ≠ 业务合法」。
+
+<b>换域的代价，必须提前知道</b>：这套教材有相当一部分机制<b>本体就是文件系统</b>，
+不是「顺便用到文件」。最直接的两处是阶段 9 的第 4 课（产物落盘，`ch08` 的
+`artifacts/` 目录）和第 5 课（文件记忆，`ch09` 的 `manifest.json` + `MEMORY.md` + 文件锁）。
+进入这两课之前必须做一次二选一的决定，不能到时候才发现：
+
+- <b>补一个受约束的工作区文件工具集</b>（shell / read_file / write_file 的 Java 版，
+  带路径边界校验）——忠于教材，但引入一套 Java 侧还没有的基础设施；
+- <b>或把这两课降级为「只做纯内存部分」</b>——四级压缩里的 `microCompactHistory` 和
+  `snipCompactHistory` 是纯函数，可以照做；但「产物落盘只回路径」「跨会话记忆」这两条
+  核心机制就必须放弃或另找载体。
+
+另外两处换域时一起丢掉的机制，已分别处理或记录在案：教材的 `ToolEffect` 是
+`read | write | execute | external` 四态，Java 侧是 `READ | WRITE | DESTRUCTIVE` 三态，
+`DESTRUCTIVE` 是 Java 侧自创、教材没有对应物（`external` 在教材权限系统里没有特殊裁决，
+映射成 `WRITE` 行为等价，但丢了「委派」这个语义标签）；教材的 `validateToolPairing`
+（tool 结果和 assistant 调用必须配对）有 16 处调用，Java 侧还没有，是阶段 9 第 4 课
+压缩的前置。
+
+这条约定不是一次性决定，是贯穿阶段 6 起的持续取舍。每进入一个依赖文件系统的新阶段，
+都要先回来看这里，明确「这一课在场景域里怎么落」。
 
 ### 贯穿项：不要放到最后才做
 
@@ -248,27 +281,32 @@ Agent 能执行工具之后，第一件事不是加更多工具，而是把危�
 
 1. **会话计划**（ch05）：TODO 完整快照、状态校验、陈旧计划提醒，避免长任务漂移；
 2. **子 Agent**（ch06）：隔离历史、共享运行边界、禁止递归委派、限制轮数；
-3. **产物落盘与上下文压缩**（ch08）：结果写文件、分层裁剪、摘要恢复 token 预算；
-4. **文件记忆**（ch09）：从 canonical history 提取、整理并跨会话检索；
-5. **动态 Prompt 组装**（ch10）：Provider 按固定顺序生成运行态系统提示，避免复制 Loop。
+3. **Skill 按需加载**（ch07）：先扫描摘要、再按名称加载正文，让知识按需进入上下文；
+4. **产物落盘与上下文压缩**（ch08）：结果写文件、分层裁剪、摘要恢复 token 预算；
+5. **文件记忆**（ch09）：从 canonical history 提取、整理并跨会话检索；
+6. **动态 Prompt 组装**（ch10）：Provider 按固定顺序生成运行态系统提示，避免复制 Loop。
 
 **这一阶段不能省。** 它是当前 Agent 岗位面试问得最细的部分，也是 RAG 之外另一条独立能力线：RAG 是「去外部找知识」，压缩和记忆是「管好已经在手里的上下文」，两者不能互相替代。
 
 **完成标准：**能说明四级压缩分别丢弃什么、保留什么；能解释 token 预算耗尽时系统按什么顺序裁剪；能演示一次跨会话记忆检索。
 
-**Java 实现进度：第 1、2 课已完成，共 5 课。**代码在 `10-context-engineering` 模块的 `learn.agent.llm.plan` 包，
-文档 `lessons/01-session-plan.md`、`lessons/02-subagent.md`，48 个离线测试
-（`TodoTrackerTest` 25 + `PlanReminderHookTest` 10 + `SubagentToolTest` 13）。
+**Java 实现进度：第 1、2 课已完成，共 6 课。**代码在 `10-context-engineering` 模块的 `learn.agent.llm.plan` 包，
+文档 `lessons/01-session-plan.md`、`lessons/02-subagent.md`，53 个离线测试
+（`TodoTrackerTest` 25 + `PlanReminderHookTest` 10 + `SubagentToolTest` 13 + `TodoWriteStrictFieldsTest` 5）。
 第 1 课的机制是「完整快照 + 陈旧提醒」：`todo_write` 只接受完整任务数组，不提供增量补丁接口 ——
 增量要求模型记住下标，而它记不住，猜错下标会静默地把计划和现实脱节。要求完整快照的代价是多花 token，
 收益是模型每次必须把整个计划重读一遍，这个「重读」本身就是对抗遗忘的机制。
 
-本课复用阶段 8 的 Hook 扩展点接进循环（`PlanReminderHook` 注册在 `POST_TOOL_USE` 上），**没有新写第四个循环骨架**，
-这是阶段 8 那套扩展点第一次被下游真正复用。但它同时暴露出一个缺口：Hook 的 `additionalContext` 会被 append
-进 messages 永久留在历史里，而提醒的正确语义是「只影响这一次请求，发完就丢」。所以 `TodoTracker.beforeModel()`
-保留了教材原义（请求级临时消息、读取即清零）并由单测护住，`PlanReminderHook` 则把这个差异写进注释和文档 ——
-Hook 的设计目标是「改变对话」，而提醒要的恰恰是「不改变对话」，这在 Hook 的词汇表里没有对应物。
-**这正是第 5 课要引入 Provider 机制的原因，结论有代码证据而不是一句断言。**
+本课最初复用阶段 8 的 Hook 扩展点接进循环（`PlanReminderHook` 注册在 `POST_TOOL_USE` 上），
+**没有新写第四个循环骨架**，这是阶段 8 那套扩展点第一次被下游真正复用。但这条路径暴露了一个缺口：
+Hook 的 `additionalContext` 会被 append 进 messages 永久留在历史里，而提醒的正确语义是
+「只影响这一次请求，发完就丢」—— 走 Hook 这条路，提醒会在历史里堆积，跑三十轮攒下十条一样的话。
+
+**这个缺口已经补上了，而且结论要纠正：它本来就不该等到 Provider。** 教材在讲会话计划那一章
+（`ch05` 的 `core/loop.ts`）就已经给了 `toolRoundObserver` 扩展点，`beforeModel()` 只拼进当次请求、
+不写进历史。我们当时没抄这个扩展点，绕道 Hook，又把绕道的代价误写成了「Hook 的设计缺陷」。
+重构检查后补上了 `ToolRoundObserver` 接口并接进循环，与教材对齐。Provider（第 6 课）管的是
+「整个系统提示怎么组装」，和「这一次请求要不要多带一句提醒」是两件不同的事。
 
 第 2 课（子 Agent）的机制是 `task` 工具：把一段「过程长、结论短、自包含」的探索交给一个全新历史的子 Agent，
 父 Agent 只收回一句有证据的结论，中间几十轮读文件记录随子 Agent 一起消失。第 1 课让 Agent 记住目标，
@@ -287,7 +325,7 @@ Hook 的设计目标是「改变对话」，而提醒要的恰恰是「不改变
 以及子 Agent 失败时只回结构化错误码，既不回它最后一条工具结果（父 Agent 分不出「做完了」还是「没做完」），
 也不回异常文本（里面可能有路径、SQL、配置键名）。
 
-## 阶段 10：RAG 与 Skill 按需加载
+## 阶段 10：RAG 与向量检索
 
 RAG 的目标不是「把一堆文本塞给模型」，而是让模型基于可追踪的外部知识回答。
 
@@ -300,9 +338,10 @@ RAG 的目标不是「把一堆文本塞给模型」，而是让模型基于可�
 5. 混合检索、重排和引用来源；
 6. 召回失败、知识过期和权限过滤。
 
-同时读 `code/chapters/ch07/`（`skills`）：先扫描摘要，再按名称加载正文。Skill 是「知识按需进入上下文」的另一种实现，和向量检索是两条不同的路径，值得对比。
-
-RAG 本身本仓库教程没有独立章节，需要自写 lesson。
+RAG 本身本仓库教程没有独立章节，需要自写 lesson。它与阶段 9 第 3 课的关系值得对比：
+Skill 按需加载是「少拿」——知识在本地，按名称按需进入上下文；RAG 是「去找」——知识在外部，
+按语义相似度召回。两者解决的都是「上下文放不下全部知识」，但一条路径在教材里有实现（ch07），
+另一条要自己写。
 
 **代码产出：**知识库问答服务，答案必须返回引用文档 id；先用内存向量或本地向量库学习，再接真实向量数据库。
 

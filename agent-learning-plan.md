@@ -28,8 +28,8 @@
 | 6 | Structured Output 与 Tool Calling | ch02 | DONE | `06-structured-output` 52 个测试（两层校验、只出预览）+ `07-tool-calling` 17 个测试（`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传） |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | DONE | `08-agent-loop`：`run` 返回 `AgentTrace` 而非字符串、工具超时、重复调用幂等、每轮 trace；15 个测试 |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | DONE | `09-agent-guardrails`：权限四态归约 36 个测试 + Hook 四事件与三道锁 33 个测试，共 69 个 |
-| 9 | 上下文工程：计划、压缩、记忆 | ch05、ch06、ch08、ch09、ch10 | IN_PROGRESS | 第 1 课会话计划 + 第 2 课子 Agent 已完成：`10-context-engineering` 的 `plan` 包，48 个离线测试（tracker 25 + 桥接 10 + 子 Agent 13）；余三课待做 |
-| 10 | RAG 与 Skill 按需加载 | ch07 | NOT_STARTED |  |
+| 9 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | IN_PROGRESS | 第 1 课会话计划 + 第 2 课子 Agent 已完成：`10-context-engineering` 的 `plan` 包，53 个离线测试（tracker 25 + 桥接 10 + 子 Agent 13 + 严格字段 5）；余四课待做 |
+| 10 | RAG 与向量检索 | —（自写 lesson） | NOT_STARTED |  |
 | 11 | API 韧性与任务系统 | ch11–ch14 | NOT_STARTED |  |
 | 12 | LangGraph 状态与工作流 | — | NOT_STARTED |  |
 | 13 | Java Agent 集成 | — | NOT_STARTED |  |
@@ -53,11 +53,11 @@
 - 本阶段目标：让 Agent 在长任务里不失控 —— 会话计划快照、上下文压缩、记忆机制
 - 为什么现在学：阶段 5 到 8 已经能跑完一轮完整的「模型选工具 → 程序执行 → 裁决与 Hook」，但轮数一多上下文就爆。长任务失败通常不是模型不够聪明，是上下文管理失控
 - 前置知识：阶段 7 的 `AgentTrace`（压缩要先有可裁剪的结构）、阶段 8 的裁决与 Hook（压缩不能把审计记录压掉）
-- 阶段状态：IN_PROGRESS（5 课中前 2 课已完成）
-- 主教材：`code/chapters/ch05`、`ch06`、`ch08`、`ch09`、`ch10`
+- 阶段状态：IN_PROGRESS（6 课中前 2 课已完成）
+- 主教材：`code/chapters/ch05`、`ch06`、`ch07`、`ch08`、`ch09`、`ch10`
 - 阶段 5 至 8 的模块与文档路径见下方「已完成内容」，每个模块自带 README 导航
-- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 311 个测试，3 跳过为缺 `REDIS_PASSWORD` 的真实 Redis）
-- 本阶段五课进度：第 1 课会话计划、第 2 课子 Agent **已完成**；第 3 课产物落盘与压缩、第 4 课文件记忆、第 5 课动态 Prompt 组装待做
+- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 325 个测试，3 跳过为缺 `REDIS_PASSWORD` 的真实 Redis）
+- 本阶段六课进度：第 1 课会话计划、第 2 课子 Agent **已完成**；第 3 课 Skill 按需加载、第 4 课产物落盘与压缩、第 5 课文件记忆、第 6 课动态 Prompt 组装待做
 
 ## 已完成内容
 
@@ -123,10 +123,10 @@
 
 ## 下一阶段
 
-- 阶段 9 第 3 课**产物落盘与上下文压缩**（教材 `code/chapters/ch08`、`ch09`）：工具结果写文件只回路径、分层裁剪、压缩时不能丢审计
-- 阶段 9 五课的进度：第 1 课会话计划、第 2 课子 Agent **均已完成**，第 3 至 5 课（产物落盘与压缩、文件记忆、动态 Prompt 组装）未开始
-- 第 1 课留下的伏笔：`PlanReminderHook` 证明 Hook 表达不了请求级临时上下文，这是第 5 课引入 Provider 的动机，届时要回头把提醒改接到 Provider 上
-- 第 2 课留下的伏笔：子 Agent 只回一句结论，**那句结论没有落盘**。第 3 课把产物写文件之后，委派的结论也该走同一条路 —— 回路径而不是回全文
+- 阶段 9 第 3 课**Skill 按需加载**（教材 `code/chapters/ch07`）：先扫描摘要、再按名称加载正文。这是把 ch07 从原阶段 10 挪回来的 —— 教材 ch10 的动态 Prompt 直接依赖 SkillRegistry，学第 6 课之前必须先有它
+- 阶段 9 六课的进度：第 1 课会话计划、第 2 课子 Agent **均已完成**，第 3 至 6 课（Skill 按需加载、产物落盘与压缩、文件记忆、动态 Prompt 组装）未开始
+- 第 1 课留下的伏笔已了结：补了 `ToolRoundObserver` 扩展点（教材 ch05 本来就有），提醒改走请求级临时上下文，不再绕 Hook。上期那条「等第 5 课 Provider 解决」的记录是错的，Provider 管的是系统提示组装，不是这个
+- 第 2 课留下的伏笔：子 Agent 只回一句结论，**那句结论没有落盘**。第 4 课把产物写文件之后，委派的结论也该走同一条路 —— 回路径而不是回全文
 - 阶段 5 至 9 的交付明细见「已完成内容」，模块与包路径见各模块 README
 
 ### 已解决：阶段与模块编号对齐
@@ -430,7 +430,7 @@
 - 候选收集顺序固定：硬边界 → 破坏性默认 → Hook 建议 → 规则（注册顺序）
 - `passthrough` 归一为 **allow** 不是 deny：否则每加一个新工具都得先补一条规则才能用
 - ask 五路 fail-closed：无审批器 / 审批器抛异常 / 返回 null / 返回 ask / 返回 passthrough，全部落到 deny
-- 硬边界拒绝**不可上诉** —— 审批器连问都不问。Java 侧域重映射：原教材那条 workspace 路径边界换成 `SceneSnapshot.isProtected(deviceId)`，因为 `ToolEffect` 只有 READ/WRITE/DESTRUCTIVE，没有 execute，路径在这个域里没有对应物
+- 硬边界拒绝**不可上诉** —— 审批器连问都不问。Java 侧域重映射：原教材那条 workspace 路径边界换成 `SceneSnapshot.isProtected(deviceId)`，因为 `ToolEffect` 只有 READ/WRITE/DESTRUCTIVE，没有 execute，路径在这个域里没有对应物。这次域重映射已升级成全局决策，写进 `agent-engineer-roadmap.md` 的「Java 复刻的域约定」
 - 审计是**闸门不是日志**：`record()` 抛异常 → `decide()` 抛异常 → Loop 转成 `permission_evaluation_error` → handler 不执行。吞掉异常会造成「副作用已发生却无记录」，比操作失败严重得多。每次 `decide()` 恰好一条记录，写在最终决定之后，所以审计里只有 allow/deny
 - 裁决必须排在**幂等缓存之前**：反过来的话，一次被批准的调用会绕过后续全部裁决，权限只在首次调用生效
 - 规则谓词抛异常 → 按那条规则的名字 deny。捕获 `Throwable` 而不是 `RuntimeException`：自递归匹配器抛的是 `StackOverflowError`，漏出去就既没有 deny **也没有审计记录**，正是审计要防的那种状态
