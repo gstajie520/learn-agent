@@ -13,6 +13,7 @@ Java 对照：类似 Spring Boot 的 `main` 加上一个 `@Configuration`。区�
 
 import argparse
 import sys
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -195,9 +196,27 @@ def execute(prompt: str, workspace: str, settings: object) -> int:
     exit_code: int | None = None
     try:
         runner = build_agent(P20, OpenAIChatModel(settings), workspace, **runtime.build_kwargs)  # type: ignore[arg-type]
+        # 同步上游修复 79437ad：worker 线程只置位标志，事件回合由主线程
+        # 串行消费，避免两个线程同时进入同一个 AgentRunner。
+        wakeup = threading.Event()
+        runtime.teammate_runtime.bind_wakeup(wakeup.set)
         runtime.cron_runtime.start()
         runtime.teammate_runtime.start()
         print(runner.run(prompt).final_text)
+        # 主回合结束后继续消费队友/Cron 事件回合，队友汇报不再只落盘等下次运行。
+        idle_rounds = 0
+        while idle_rounds < 12:  # 连续 60 秒没有新事件就结束等待。
+            event_result = runner.run_events()
+            if event_result is not None:
+                print(event_result.final_text)
+                idle_rounds = 0
+                continue
+            if not runtime.teammate_runtime.has_pending_work:
+                break
+            if wakeup.wait(timeout=5):
+                wakeup.clear()
+            else:
+                idle_rounds += 1
         exit_code = 0
     except BaseException as error:  # noqa: BLE001
         failures.append(error)

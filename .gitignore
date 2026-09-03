@@ -6,3 +6,17 @@ code/demo/
 
 # Git Credential Manager 排查凭据问题时生成的诊断日志，可能含账号信息，不入库
 gcm-diagnose.log
+
+# TypeScript
+typescript/node_modules/
+typescript/.env
+
+# Python
+python/.venv/
+python/.env
+python/**/__pycache__/
+python/**/.pytest_cache/
+python/**/.mypy_cache/
+python/**/.ruff_cache/
+python/**/dist/
+python/**/*.egg-info/

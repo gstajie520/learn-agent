@@ -74,6 +74,7 @@ class TeammateRuntime:
         self._workers: dict[str, _Worker] = {}  # 当前进程创建过的队友注册表。
         self._queued: set[str] = set()  # 已发布到 Inbox 的 Lead mailbox 消息 ID。
         self._factory: RunnerFactory | None = None  # 一次性注入的队友 Runner 工厂。
+        self._wakeup: Callable[[], None] | None = None  # Lead 新消息到达时的宿主唤醒回调。
         self._closed = False
         self._started = False
         self._lock = threading.RLock()
@@ -312,16 +313,38 @@ class TeammateRuntime:
             except Exception:  # noqa: BLE001
                 return
 
-    def _publish_lead(self) -> None:
-        """持续 claim Lead ready 消息并放入公共 EventInbox。"""
+    def bind_wakeup(self, wakeup: Callable[[], None]) -> None:
+        """绑定 Lead 新消息到达时的唤醒回调；实际并发互斥由宿主负责。
+
+        这是什么：给宿主（CLI 或长驻进程）注册一个回调，队友结果投递到
+        Lead mailbox 后立即触发，让宿主主动开一个独立 event turn。
+        Java 类比：类似给消息监听器设置 onMessage 回调，消费时机交给宿主。
+        为什么需要：同步上游修复 79437ad —— 没有唤醒接线时，队友汇报只会
+        安全落盘，Lead 要等下一次用户输入才能读到；绑定后同一次会话内即可消费。
+        """
+        if not callable(wakeup):
+            raise TypeError("wakeup 必须是可调用对象")
+        self._wakeup = wakeup
+
+    def _publish_lead(self) -> bool:
+        """持续 claim Lead ready 消息并放入公共 EventInbox；发布新消息时唤醒宿主。"""
+        published = False
         while True:
             message = self.store.claim(self.lead_name)
             if message is None:
-                return
+                break
             if message.id in self._queued:
                 raise MailboxStorageError(f"Mailbox 消息重复入队: {message.id}")
             self._queued.add(message.id)
             self.inbox.publish(message)
+            published = True
+        if published and self._wakeup is not None:
+            try:
+                self._wakeup()
+            except Exception:  # noqa: BLE001
+                # 唤醒回调失败不能打断 worker 线程；消息已安全落盘，可由下次 start() 恢复。
+                pass
+        return published
 
     def _ensure_open(self) -> None:
         """拒绝关闭后的新操作。"""

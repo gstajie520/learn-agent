@@ -104,6 +104,8 @@ python/
 
 各章不是互相独立的玩具项目：后续章节在前章基础上扩展能力，每章是完整的可运行快照。实现细节以当前源码和测试为准。
 
+从第 15 章开始，CLI 同时接入 Teammate 和 Cron 两类 wakeup，并交给同一个 `AgentRunner` 的 `run_events()` 入口（同步自上游 79437ad 修复）。这样队友消息、定时任务和后台事件都能在明确的 event turn 中进入 Lead 上下文；由于 Python 版以 worker 线程驱动队友，唤醒回调只置位事件标志，事件回合统一由主线程串行消费，避免两个线程同时进入同一个 Runner。第 9 章起的记忆 side-query 系统提示词也同步了上游 42c0e6f 加固：明确禁止 Markdown 代码围栏和解释文字，并要求记忆名称为安全的小写 slug。
+
 ### TypeScript 原始实现（参考）
 
 TypeScript 原始实现保留在 [`typescript/`](./typescript/) 目录：

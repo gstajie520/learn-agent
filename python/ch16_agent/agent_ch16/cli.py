@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import threading
 from pathlib import Path
 
 from .adapters.background_json import JsonBackgroundJobStore
@@ -111,9 +112,31 @@ def main() -> int:
             teammate_runtime=teammate_runtime,
             protocol_runtime=protocol_runtime,
         )
+        wakeup = threading.Event()
+
+        def request_event_turn() -> None:
+            # 同步上游修复 79437ad：worker 线程只置位标志，事件回合由主线程
+            # 串行消费，避免两个线程同时进入同一个 AgentRunner。
+            wakeup.set()
+
+        teammate_runtime.bind_wakeup(request_event_turn)
         cron_runtime.start()
         teammate_runtime.start()
         print(runner.run(args.prompt).final_text)
+        # 主回合结束后继续消费队友/Cron 事件回合，队友汇报不再只落盘等下次运行。
+        idle_rounds = 0
+        while idle_rounds < 12:  # 连续 60 秒没有新事件就结束等待。
+            event_result = runner.run_events()
+            if event_result is not None:
+                print(event_result.final_text)
+                idle_rounds = 0
+                continue
+            if not teammate_runtime.has_pending_work:
+                break
+            if wakeup.wait(timeout=5):
+                wakeup.clear()
+            else:
+                idle_rounds += 1
         runner.close()
         return 0
     except ConfigurationError as error:
