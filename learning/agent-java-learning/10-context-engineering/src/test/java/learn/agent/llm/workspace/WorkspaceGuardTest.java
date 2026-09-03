@@ -3,6 +3,7 @@ package learn.agent.llm.workspace;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,7 @@ public class WorkspaceGuardTest {
         assertTrue(resolved.isAbsolute(), "结果必须是绝对路径");
         assertTrue(WorkspaceGuard.isInside(guard.getRoot(), resolved),
                 "结果必须落在工作区内");
-        assertTrue(resolved.endsWith(Path.of("skills", "demo")));
+        assertTrue(resolved.endsWith(Paths.get("skills", "demo")));
     }
 
     /**
