@@ -1,0 +1,232 @@
+===============================================
+第 11 章教程材料增强完成报告
+===============================================
+
+完成时间：2026-09-03
+参考模板：ch01_agent
+
+一、学习材料生成（已完成）
+===============================================
+
+1. XMind 脑图文件
+   文件：ch11_learning_roadmap.xmind
+   大小：5.6 KB
+   格式：XMind 8/2020+ 兼容 ZIP 格式
+   内容：
+     - 学习路线（4 步速通）
+     - 核心文件清单（4 个主要文件）
+     - Java 对照关系（4 个维度）
+     - 设计模式识别（4 种模式）
+     - 关键概念理解（5 个核心概念）
+     - 面试题速查（8 道题 + 详细答案）
+
+2. Markdown 脑图备份
+   文件：ch11_learning_roadmap.md
+   大小：14 KB
+   格式：Mermaid mindmap + 详细文档
+   内容：与 XMind 一致 + FAQ + 速查表
+
+3. Java 速通指南
+   文件：JAVA_QUICKSTART.txt
+   大小：7.9 KB
+   内容：
+     - 4 步学习路线（45 分钟）
+     - 调试断点速查（5 个必打 + 3 个可选）
+     - 核心概念速记
+     - 常见陷阱避免
+     - 核心流程伪代码
+
+
+二、代码注释增强（已完成）
+===============================================
+
+1. features/recovery.py（恢复层核心文件）
+   增强内容：
+     ✓ 文件级文档字符串（三段式）
+     ✓ 常量注释（10 个默认值）
+     ✓ 异常类注释（5 个异常类）
+     ✓ CancellationToken 类（完整三段式注释）
+     ✓ RecoveryConfig 类（参数分类 + 校验逻辑）
+     ✓ RecoveryState 类（状态字段分类）
+     ✓ RecoveryManager 类（装饰器模式说明）
+     ✓ begin_turn() 方法（初始化说明）
+     ✓ complete() 方法（主恢复循环详细注释）
+     ✓ _retry_transient() 方法（退避逻辑）
+     ✓ _parse_retry_after() 方法（Retry-After 解析）
+     ✓ _backoff_delay() 方法（指数退避公式）
+     ✓ 辅助方法（边界检查、时间计算）
+     ✓ 辅助函数（_sleep、_split_leading_system、_merge_fragments）
+
+2. core/model.py（异常定义文件）
+   增强内容：
+     ✓ 文件级文档字符串（供应商无关设计）
+     ✓ ModelAPIError 基类（完整三段式注释）
+     ✓ ModelRateLimitError（429 限流异常）
+     ✓ ModelOverloadedError（529 过载异常）
+     ✓ ModelPromptTooLongError（输入过长异常）
+
+3. adapters/openai_chat.py（适配器文件）
+   增强内容：
+     ✓ 文件级文档字符串（适配器职责）
+     ✓ PROMPT_TOO_LONG_CODES 常量注释
+     ✓ OpenAIResponseError 异常（响应校验）
+     ✓ OpenAIChatModel 类（适配器模式说明）
+     ✓ complete() 方法（异常映射流程）
+     ✓ _map_api_status_error() 函数（详细映射规则）
+
+
+三、注释风格统一
+===============================================
+
+所有注释均采用三段式：
+  1. 这是什么（功能描述）
+  2. Java 类比（对照 Java 概念）
+  3. 为什么需要（设计动机）
+
+关键代码行均有行内注释：
+  - 参数校验逻辑
+  - 状态转换点
+  - 边界检查点
+  - 异常映射逻辑
+  - 算法公式
+
+
+四、学习路线设计
+===============================================
+
+推荐学习顺序（45 分钟）：
+  第 1 步：读测试了解故障场景（10 分钟）
+    - tests/test_recovery.py
+    - 理解三种故障类型
+    - 观察恢复策略
+
+  第 2 步：读恢复管理器核心循环（20 分钟）
+    - features/recovery.py
+    - RecoveryManager.complete() 主循环
+    - 理解升级→续写→压缩→退避流程
+
+  第 3 步：理解异常映射机制（10 分钟）
+    - adapters/openai_chat.py
+    - core/model.py
+    - 供应商错误如何归一化
+
+  第 4 步：理解接入点（5 分钟）
+    - core/loop.py
+    - bootstrap.py
+    - 哪些请求使用恢复层
+
+
+五、核心概念梳理
+===============================================
+
+三种故障类型：
+  1. 输出截断（finish_reason == "length"）
+     → 升级预算 8000→64000，仍截断则续写
+
+  2. 输入过长（ModelPromptTooLongError）
+     → 保留 system message，压缩其余历史
+
+  3. 临时故障（429/529）
+     → 429 遵守 Retry-After，529 连续 3 次切 fallback
+
+设计模式识别：
+  1. 适配器模式：供应商错误归一化
+  2. 策略模式：ModelRequestExecutor 接口
+  3. 状态模式：RecoveryState 可变状态
+  4. 装饰器模式：RecoveryManager 包装 ModelClient
+
+
+六、面试题设计
+===============================================
+
+共 8 道题，涵盖：
+  Q1: 为什么需要恢复层？
+  Q2: 为什么供应商错误要归一化？
+  Q3: 输出截断为什么分两步处理？
+  Q4: 为什么摘要请求不能套恢复层？
+  Q5: 指数退避为什么要加 Jitter？
+  Q6: 为什么连续 3 次 529 才切 fallback？
+  Q7: CancellationToken 和 Python 的区别？
+  Q8: 为什么外层历史不包含续写消息？
+
+每道题均包含详细答案和原理解释。
+
+
+七、文件清单
+===============================================
+
+生成的学习材料：
+  ✓ ch11_learning_roadmap.xmind（5.6 KB）
+  ✓ ch11_learning_roadmap.md（14 KB）
+  ✓ JAVA_QUICKSTART.txt（7.9 KB）
+  ✓ generate_xmind.py（脚本文件）
+
+增强的核心文件：
+  ✓ agent_ch11/features/recovery.py（恢复层）
+  ✓ agent_ch11/core/model.py（异常定义）
+  ✓ agent_ch11/adapters/openai_chat.py（适配器）
+
+
+八、验证命令
+===============================================
+
+检查学习材料：
+  ls -lh ch11_learning_roadmap.xmind
+  ls -lh ch11_learning_roadmap.md
+  ls -lh JAVA_QUICKSTART.txt
+
+验证 XMind 文件：
+  unzip -l ch11_learning_roadmap.xmind
+
+查看 Markdown 脑图：
+  cat ch11_learning_roadmap.md
+
+运行单元测试（验证代码完整性）：
+  & ..\.venv\Scripts\python.exe -m pytest tests/test_recovery.py -v
+
+
+九、对比 ch01 模板完成度
+===============================================
+
+参照项目：
+  ✓ XMind 脑图文件（格式一致）
+  ✓ Markdown 脑图备份（格式一致）
+  ✓ JAVA_QUICKSTART.txt（格式一致）
+  ✓ generate_xmind.py（脚本存在）
+
+代码注释密度：
+  ✓ 三段式类/函数注释（已完成）
+  ✓ 关键代码行内注释（已完成）
+  ✓ 参数说明和返回值（已完成）
+  ✓ Java 对照关系（已完成）
+
+学习材料深度：
+  ✓ 6 个主分支（与 ch01 一致）
+  ✓ 8 道面试题（ch01 为 7 道）
+  ✓ 调试断点速查（5+3 断点）
+  ✓ 核心概念速记（已完成）
+
+
+十、总结
+===============================================
+
+已完成任务：
+  ✓ 生成 XMind 脑图（6 个主分支）
+  ✓ 生成 Markdown 脑图备份
+  ✓ 生成 Java 速通指南
+  ✓ 增强核心文件代码注释（3 个文件）
+  ✓ 统一注释风格（三段式）
+
+材料特点：
+  - 学习路线清晰（4 步 45 分钟）
+  - 概念梳理完整（三种故障 + 四种模式）
+  - Java 对照详细（适合 Java 开发者）
+  - 面试题实用（8 道典型问题）
+  - 断点指南精准（5 个必打断点）
+
+下一步建议：
+  1. 运行测试验证代码完整性
+  2. 用 XMind 打开脑图文件检查布局
+  3. 按学习路线阅读代码和注释
+  4. 打断点单步调试恢复流程
+  5. 尝试修改配置参数观察行为变化
