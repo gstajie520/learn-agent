@@ -1,4 +1,10 @@
-﻿
+﻿"""权限策略系统单元测试。
+
+这是什么：测试 PermissionPolicy 的规则评估、冲突合并、审批收敛、审计记录逻辑。
+Java 类比：类似 PermissionServiceTest，使用 Fake 对象隔离外部依赖。
+为什么需要：权限系统是安全边界，必须保证 fail-closed、决策合并、审计不可绕过的正确性。
+"""
+
 import pytest
 
 from agent_ch03.core.messages import tool_call

@@ -1,4 +1,11 @@
-﻿from pathlib import Path
+﻿"""第 2 章工具集测试（在第 3 章保留）。
+
+这是什么：测试 shell、read_file、write_file、edit_file、glob 五个工具的注册和基本功能。
+Java 类比：类似 ToolServiceTest，使用 Fake 依赖隔离外部系统。
+为什么需要：验证工具定义、参数校验、错误处理是否正确，确保工具调用的稳定性。
+"""
+
+from pathlib import Path
 
 from agent_ch03.adapters.filesystem import LocalWorkspaceFileSystem
 from agent_ch03.bootstrap import build_agent

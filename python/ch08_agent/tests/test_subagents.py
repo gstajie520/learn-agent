@@ -1,3 +1,10 @@
+"""Subagent 模块的单元测试：验证子 Agent 创建和消息注入逻辑。
+
+这是什么：测试子 Agent 的派生、执行和消息流处理
+Java 类比：类似 SubagentManagerTest 单元测试类
+为什么需要：确保子 Agent 能正确继承上下文，且执行结果能回流到父 Agent
+"""
+
 from pathlib import Path
 
 from agent_ch08.core.hooks import HookRegistry, HookResult

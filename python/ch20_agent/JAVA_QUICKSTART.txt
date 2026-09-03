@@ -1,0 +1,195 @@
+===============================================
+Java 开发者 3 步速通完整 Agent Harness（45 分钟）
+===============================================
+
+第 1 步：从验收测试看整合目标（15 分钟）
+---------------------------------
+打开 tests/test_ch20_full_harness.py，理解完整 Harness 的验收标准：
+  输入：一个同时连接 MCP 和尝试越界写入的回复
+  输出：动态工具下一轮可见、越界被拒、配对正确、资源关闭
+
+Java 类比：类似 @SpringBootTest 集成测试——验证所有能力在同一 Context 上协同工作
+
+关注这四条核心不变量：
+  1. 动态工具（MCP）本轮快照密封，下一轮才可见
+  2. 每个 tool_call 必须恰好配一个同 ID 的 tool result
+  3. Prompt 只做提示，PermissionPolicy 才是硬边界
+  4. 资源逆序关闭，成功与失败路径都保证回收
+
+
+第 2 步：读组合根装配逻辑（20 分钟）
+---------------------------------
+打开 bootstrap.py，按顺序阅读：
+  1. _full_harness_runtime_status 函数  → 运行态状态汇总
+  2. build_agent 函数开头               → profile 对象身份校验
+  3. 能力与依赖的 if-raise 校验块       → capability 白名单判断
+  4. 共享关系的对象身份校验             → is 判断而非类型判断
+
+重点理解：
+  - profile_for_chapter(profile.chapter) is not profile
+    → 只接受固定单例，拒绝临时构造的冒充对象（类似只接受 enum 常量）
+
+  - "capability" in profile.capabilities
+    → 能力白名单判断，每章只启用档案允许的能力
+
+  - task_store is not worktree_runtime.store
+    → 对象身份校验，保证跨能力对象共享同一实例
+
+  - lambda: _full_harness_runtime_status(...)
+    → 捕获运行时引用，每轮重新读取状态而非构建期快照
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解装配与执行流程，按优先级打以下断点：
+
+【必打断点】理解装配流程（5 个）
+[1] bootstrap.py:108  → build_agent() 函数开始
+    观察：profile.chapter、profile.capabilities
+    目的：确认传入的是哪个章节档案（P20）
+
+[2] bootstrap.py:112  → profile 对象身份校验
+    观察：profile_for_chapter(profile.chapter) is not profile 的结果
+    目的：理解为什么只接受固定单例
+
+[3] bootstrap.py:364  → 运行态状态提供者创建
+    观察：lambda 捕获的 background_supervisor、cron_runtime、mcp_runtime
+    目的：确认状态提供者绑定了哪些运行时引用
+
+[4] cli.py:196  → build_agent() 调用成功
+    观察：runtime.build_kwargs 的内容
+    目的：检查传给组合根的所有依赖是否完整
+
+[5] cli.py:206  → runner.close() 开始
+    观察：runner._resources 的顺序
+    目的：确认资源逆序关闭的顺序（MCP → Teammate → Cron → Supervisor）
+
+一次完整运行的调用链：
+[4] → [1] → [2] → [3] → （主循环）→ [5]
+
+【可选断点】深入理解（3 个）
+[6] core/profiles.py:98  → _build_profiles() 累计推导循环
+    观察：每轮 accumulated 列表的增长
+    目的：理解增量表如何累加成完整档案
+
+[7] features/prompting.py:175  → DynamicPromptProvider.render()
+    观察：self._status_provider() 的返回值
+    目的：确认每轮读取的状态是否变化（MCP 连接前后）
+
+[8] core/loop.py:298  → AgentRunner.close() 逆序遍历
+    观察：reversed(self._resources) 的顺序
+    目的：理解为什么 MCP 最先关闭、Supervisor 最后关闭
+
+
+第 3 步：浏览能力档案与动态 Prompt（10 分钟）
+---------------------------------
+快速浏览三个文件，了解能力推导与状态渲染：
+  - core/profiles.py        → 增量表 _PROFILE_DELTAS + 累计推导
+  - features/prompting.py   → runtime_status 尾部段落
+  - cli.py                  → create_live_runtime 与 execute
+
+不要深入细节，知道有什么就行：
+  - profiles.py 负责把"每章新增能力"累加成"完整能力档案"
+  - prompting.py 负责每轮重新读取运行态状态并渲染到 Prompt 末尾
+  - cli.py 负责真实运行入口、资源创建与逆序关闭
+
+
+核心概念速记
+---------------------------------
+完整 Harness = 前十九章能力的整合验证，不是新框架
+
+对象身份校验 = 用 is 判断而非 ==，拒绝临时构造的冒充对象
+
+增量表推导 = 每章只声明新增能力，_build_profiles 累计前缀
+
+状态提供者 = lambda 捕获运行时引用，每轮重新读取而非快照
+
+共享关系 = 同一个 inbox、同一个 task_store、同一个 runtime
+
+资源关闭两条路径 = 成功时 Runner 统一逆序，失败时 closables 兜底
+
+
+学完你会掌握
+---------------------------------
+✓ 完整 Harness 的整合验证本质
+✓ 能力累计推导与超集关系保证
+✓ 对象身份校验拒绝能力越级注入
+✓ 状态提供者模式捕获运行时引用
+✓ 共享关系的对象身份校验
+✓ 资源关闭的成功与失败路径
+
+
+四条核心不变量（必须理解）
+---------------------------------
+不变量 1：动态工具的可见时机
+  - 一次模型回复只使用一个 ToolRegistry 快照
+  - MCP 连接成功后动态工具下一轮才可见
+  - 本轮快照被密封，即使工具已发布也不能调用
+
+不变量 2：消息配对契约
+  - 每个 tool_call 必须恰好配一个同 ID 的 tool result
+  - 一个成功一个失败不影响配对
+  - 违反配对会导致模型 API 拒绝请求
+
+不变量 3：授权硬边界
+  - Prompt 只负责提示，不是授权依据
+  - PermissionPolicy 的 write_boundary 硬拒绝越界写入
+  - 审批器放行不等于放行越界（第 4.3 节不变量）
+
+不变量 4：资源逆序关闭
+  - 成功时 Runner 持有 resources，统一逆序关闭
+  - 失败时 closables 兜底，按创建顺序逆序关闭
+  - 任何路径都不遗留 stdio 子进程或后台线程
+
+
+Java / Python 关键对照
+---------------------------------
+ChapterProfile                = 不可变 record
+frozenset[Capability]         = Set.copyOf(...)
+bootstrap.build_agent()       = @Configuration 类
+cli.LiveRuntime               = 持有单例的 ApplicationContext
+profile_for_chapter()         = 返回 enum 常量
+is 判断                       = 对象身份校验（而非 equals）
+Callable[[], T]               = Supplier<T>
+lambda 捕获引用               = 闭包捕获外部变量
+try/finally + close()         = try-with-resources
+ExceptionGroup                = AggregateError
+
+
+为什么这样设计？（设计动机速查）
+---------------------------------
+Q: 为什么用增量表而不是逐章手写能力集合？
+A: 因为"第 N 章是第 N-1 章的严格超集"由数据结构保证，而不是靠人工核对 20 个 frozenset。
+
+Q: 为什么用对象身份（is）而不是类型校验？
+A: 因为调用方不能临时构造一个同字段 ChapterProfile 来冒充正式章节，类似只接受 enum 常量。
+
+Q: 为什么 status_provider 是 lambda 而不是构建期快照？
+A: 因为 lambda 捕获运行时引用，每轮读到的都是当前状态，MCP 连接变化才能在下一轮体现。
+
+Q: 为什么 runtime_status 固定在 Prompt 最后？
+A: 因为状态变化不移动、不重排前面的稳定段落，缓存键的 identity/tools/workspace 不会失效。
+
+Q: 为什么资源关闭有两条路径？
+A: 因为 build_agent 本身可能失败。成功时 Runner 统一关闭，失败时 closables 兜底，都保证回收。
+
+Q: 为什么 Worktree、WorkStealing、TaskStore 必须共享？
+A: 因为它们操作同一份任务状态。不共享会导致 Lead 和 Teammate 看到的任务图分叉。
+
+
+面试常考点
+---------------------------------
+1. P20 新增了哪些独立运行时？
+   答：零个。full_harness 是验收标记能力，不新增独立运行时。
+
+2. 增量表如何保证超集关系？
+   答：accumulated.extend(delta) 只追加不删除，下一轮天然包含所有历史能力。
+
+3. 为什么 build_agent 拒绝能力越级注入？
+   答：因为低章节没有对应的测试覆盖，绕过渐进校验可能暴露未测组合。
+
+4. runtime_status 和 typed event 的区别？
+   答：event 是主动推送进历史，status 是每轮重新读取给模型决策提示。
+
+5. 为什么 closables 是逆创建顺序？
+   答：因为后创建的对象可能依赖先创建的对象，逆序关闭保证依赖安全。

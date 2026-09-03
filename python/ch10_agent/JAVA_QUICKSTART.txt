@@ -1,0 +1,141 @@
+===============================================
+Java 开发者 3 步速通动态 System Prompt（45 分钟）
+===============================================
+
+第 1 步：从测试看需求（10 分钟）
+---------------------------------
+打开 tests/test_prompting.py，理解 Renderer 的输入输出：
+  输入：identity, ToolRegistry, workspace, context, SkillRegistry, MemorySession
+  输出：固定格式的多 section 字符串
+  缓存：相同输入复用上次结果（通过 _stable_json 键比对）
+
+Java 类比：先读 PromptRendererTest 理解从运行态到模板字符串的转换
+
+
+第 2 步：读核心实现（20 分钟）
+---------------------------------
+打开 features/prompting.py，按顺序阅读：
+  1. SystemPromptProvider Protocol  → 零参数提供者接口
+  2. DynamicPromptRenderer.render   → 从运行态生成 Prompt
+  3. DynamicPromptProvider          → 绑定依赖的 Adapter
+  4. _normalize_context             → 严格 JSON 校验逻辑
+
+重点理解：
+  - SystemPromptProvider = Supplier<String>
+  - DynamicPromptRenderer = 无状态 View Renderer
+  - DynamicPromptProvider = Service Adapter（构造器注入依赖）
+  - 固定顺序：identity → tools → workspace → skills → memory
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] prompting.py:71  → DynamicPromptRenderer.render() 方法开始
+    观察：identity, tools.names, workspace, context, skills, memory
+    目的：确认输入参数（运行态对象）
+
+[2] prompting.py:100 → 缓存键比对前（key == self._last_key）
+    观察：key（新生成的稳定 JSON）, self._last_key（上次缓存键）
+    目的：理解缓存何时命中、何时失效
+
+[3] prompting.py:116 → 准备返回最终 Prompt 前
+    观察：sections 列表（各个 section 字符串）、prompt 拼接结果
+    目的：检查生成的 Prompt 格式和内容
+
+[4] prompting.py:152 → DynamicPromptProvider.render() 转发调用
+    观察：self._tools.names（当前工具列表）, self._memory.selected（选中记忆）
+    目的：确认读取的是最新运行态，不是快照
+
+[5] prompting.py:212 → _normalize_json_value() 递归校验
+    观察：value 类型、active 集合（检测循环引用）
+    目的：理解严格 JSON 校验如何拒绝非法值
+
+一次完整运行的调用链：
+AgentRunner.run() → provider.render() → [4] → renderer.render() → [1] → [2] → [3]
+如果缓存命中则在 [2] 直接返回，否则继续生成新 Prompt
+
+
+【可选断点】深入理解（3 个）
+[6] prompting.py:228 → _stable_json() 稳定序列化
+    观察：normalized_context 结构、生成的 JSON 字符串
+    目的：理解如何生成稳定缓存键（sort_keys=True）
+
+[7] loop.py:XXX  → AgentRunner 调用 provider.render()
+    观察：返回的 system_prompt 字符串（完整 Prompt）
+    目的：确认每轮请求前都读取最新 Prompt
+
+[8] bootstrap.py:XXX → _build_dynamic_prompt_provider() 组装
+    观察：renderer, tools, skills, memory 对象引用
+    目的：理解依赖注入如何绑定运行态对象
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解缓存机制后再打 [6] 深入序列化细节
+- 使用条件断点：如 turn == 2 只在第二轮停下
+
+
+第 3 步：理解集成方式（15 分钟）
+---------------------------------
+快速浏览三个文件，了解如何集成到 AgentRunner：
+  - core/loop.py           → SystemPromptProvider Protocol（接口定义）
+  - bootstrap.py           → _build_dynamic_prompt_provider（依赖绑定）
+  - tests/test_ch10_integration.py → 完整流程集成测试
+
+不要深入细节，只需理解：
+  1. AgentRunner 构造器接受 SystemPromptProvider（而非字符串）
+  2. Bootstrap 绑定 Renderer + ToolRegistry + SkillRegistry + MemorySession
+  3. 每轮调用 provider.render() 读取最新运行态
+
+
+核心概念速记
+---------------------------------
+动态 Prompt = 每轮从运行态读取最新状态（工具/记忆/Skill）
+
+固定顺序 = identity → tools → workspace → skills → memory
+
+严格 JSON = 拒绝循环引用、NaN/Infinity、非字符串键、非 JSON 类型
+
+实例级缓存 = 基于稳定 JSON 键，避免重复序列化（但不跨 Agent 共享）
+
+Provider 接口 = 封装依赖，零参数调用（类似 Supplier<String>）
+
+引用传递 = 保存对象引用而非快照，感知运行态变化
+
+
+学完你会掌握
+---------------------------------
+✓ 为什么需要动态 Prompt（静态字符串无法感知运行态变化）
+✓ 固定 section 顺序的意义（identity 必须在最前）
+✓ 严格 JSON 校验的原因（保证缓存键稳定）
+✓ 实例级缓存的设计（避免跨 Agent 污染）
+✓ Provider 接口的价值（封装依赖，零参数调用）
+✓ Renderer 和 Provider 的职责边界
+
+
+常见问题速查
+---------------------------------
+Q: 为什么不在 Bootstrap 时生成一次 Prompt 就固定？
+A: 因为工具可能动态注册、记忆每轮选择不同、Skill 按需加载。
+
+Q: 为什么 context 必须是严格 JSON？
+A: 作为缓存键必须保证稳定性，拒绝循环引用和不可序列化值。
+
+Q: 为什么缓存放实例字段而不是全局变量？
+A: 避免跨 Agent 污染，每个 AgentRunner 有独立运行态和缓存。
+
+Q: 为什么 Provider 保存对象引用而不是值快照？
+A: 要感知运行态变化，下一轮读取最新工具列表和选中记忆。
+
+Q: 为什么 _stable_json 要 sort_keys=True？
+A: 保证相同内容得到相同 JSON 字符串，不同构建路径不影响缓存。
+
+
+下一步学习
+---------------------------------
+1. 运行测试：pytest tests/test_prompting.py -v
+2. 修改 context 添加非 JSON 值，看校验如何失败
+3. 打印 renderer.cache_hits，观察缓存命中情况
+4. 实现自定义 SystemPromptProvider，练习接口使用

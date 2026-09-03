@@ -1,0 +1,154 @@
+===============================================
+Java 开发者 3 步速通权限策略（45 分钟）
+===============================================
+
+第 1 步：从测试看权限需求（10 分钟）
+---------------------------------
+打开 tests/test_permissions.py 和 tests/test_ch03_integration.py，理解：
+  输入：PreparedToolCall + ToolContext
+  输出：PermissionDecision(behavior, reason, source)
+
+Java 类比：先读 PermissionServiceTest 理解业务需求
+
+
+第 2 步：读权限策略核心（20 分钟）
+---------------------------------
+打开 core/permissions.py，按顺序阅读：
+  1. PermissionDecision    → 四态行为（allow/deny/ask/passthrough）
+  2. PermissionRequest     → 不可变请求快照
+  3. PermissionRule        → 匹配器 + 行为 + 原因
+  4. PermissionPolicy      → 合并规则、边界、审批、审计
+
+重点理解：
+  - Literal["allow", "deny", "ask", "passthrough"] = 字面量类型（类似枚举）
+  - Callable[[Request], bool] = Java Predicate<Request>
+  - frozen=True = 不可变 record
+  - _strongest() 冲突合并：deny > ask > allow
+
+权限决策流程：
+  工作区边界检查 → shell 默认 ask → 规则评估 → 合并候选 → 审批收敛 → 审计记录
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] permissions.py:139  → PermissionPolicy.decide() 方法开始
+    观察：request（prepared/context）
+    目的：确认权限请求输入
+
+[2] permissions.py:142  → 工作区边界检查后
+    观察：boundary 候选决策（写工具的路径逃逸检查）
+    目的：理解边界 deny 不能被覆盖
+
+[3] permissions.py:151  → 规则评估循环
+    观察：每条规则的 evaluate() 结果
+    目的：看规则如何匹配并产生候选
+
+[4] permissions.py:158  → 合并后的 proposed 决策
+    观察：_strongest(candidates) 结果、是否需要审批
+    目的：理解冲突合并策略
+
+[5] permissions.py:166  → 审计记录
+    观察：final 决策、audit.record() 调用
+    目的：确认最终决定已记录
+
+一次完整运行的调用链：
+[1] → [2] → [3] → [4] → [5]
+如果 proposed.behavior == "ask" 会进入 _resolve_approval()
+
+
+【可选断点】深入理解（3 个）
+[6] permissions.py:169  → _resolve_approval() 审批收敛
+    观察：approval_request、审批器返回值
+    目的：理解 ask 如何收敛为 allow/deny
+
+[7] permissions.py:184  → _workspace_boundary_decision() 边界检查
+    观察：raw_path、write_boundary.is_path_within_workspace()
+    目的：理解路径逃逸如何阻止
+
+[8] loop.py:143  → AgentRunner.run() 中的权限检查点
+    观察：permission_policy.decide() 调用时机
+    目的：看权限层在 prepare 之后、invoke 之前
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 prepared.definition.name == "shell" 只在 shell 工具停下
+
+
+第 3 步：浏览集成点（15 分钟）
+---------------------------------
+快速浏览三个文件，了解如何装配：
+  - core/loop.py        → AgentRunner 添加 permission_policy 参数
+  - cli.py              → TerminalApprovalProvider（终端 y/N 确认）
+  - bootstrap.py        → build_agent() 装配 P03 策略
+
+不要深入细节，知道怎么连接就行。
+
+
+核心概念速记
+---------------------------------
+四态行为 = allow（放行）/ deny（拒绝）/ ask（需审批）/ passthrough（无规则参与）
+
+fail-closed 原则 = 审批器/规则异常时默认 deny（安全优先）
+
+决策合并 = _strongest(candidates) 选最保守：deny > ask > allow
+
+工作区边界 = 拒绝绝对路径、.. 片段、符号链接逃逸、Windows 保留名
+
+审计不可绕过 = audit.record() 失败时向上抛出，阻止工具执行
+
+权限层位置 = prepare() 之后、invoke() 之前，拒绝时仍要生成配对 tool 消息
+
+
+关键文件定位速查
+---------------------------------
+核心策略：
+  core/permissions.py:122-167  → PermissionPolicy.decide() 主决策方法
+  core/permissions.py:109-115  → _strongest() 冲突合并
+  core/permissions.py:184-203  → _workspace_boundary_decision() 边界检查
+
+集成点：
+  core/loop.py:143-166        → 权限检查点（prepare 之后、invoke 之前）
+  bootstrap.py:48-61          → P03 策略装配（规则 + 审批 + 审计）
+
+适配器：
+  cli.py:15-36                → TerminalApprovalProvider（终端审批）
+  cli.py:39-51                → TerminalAuditSink（stderr 审计）
+
+边界保护：
+  adapters/filesystem.py:78-95  → safe_path() 路径逃逸检查
+  adapters/filesystem.py:101-107 → is_path_within_workspace() 边界判断
+
+
+Java 对照速查
+---------------------------------
+PermissionPolicy = 策略模式 + 责任链模式
+
+PermissionDecision(frozen=True) = 不可变 record
+
+Callable[[Request], bool] = Predicate<Request>
+
+Literal["allow", "deny", "ask", "passthrough"] = 枚举类型
+
+ApprovalProvider = interface（审批策略接口）
+
+AuditSink = interface（观察者接口）
+
+frozenset = Collections.unmodifiableSet
+
+except Exception: return deny = fail-closed 原则
+
+
+学完你会掌握
+---------------------------------
+✓ 权限策略的四态行为和收敛规则
+✓ fail-closed 原则的实现
+✓ 工作区边界保护机制
+✓ 规则评估与冲突合并
+✓ 审批流程和审计不可绕过
+✓ 策略模式 + 责任链模式的应用
+✓ 不可变对象的权限快照设计

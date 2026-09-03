@@ -1,3 +1,10 @@
+"""配置模块的单元测试：验证 Profile 选择和配置加载逻辑。
+
+这是什么：测试配置解析和 Profile 映射功能
+Java 类比：类似 ConfigurationServiceTest 单元测试类
+为什么需要：确保章节号能正确映射到 Profile，且配置格式校验有效
+"""
+
 import pytest
 
 from agent_ch08.config import ConfigurationError, settings_from_mapping

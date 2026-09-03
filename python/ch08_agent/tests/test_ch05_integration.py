@@ -1,3 +1,10 @@
+"""第五章集成测试：验证 TODO 跟踪器的状态管理和提醒机制。
+
+这是什么：测试 P05 引入的 TODO 列表管理功能
+Java 类比：类似 Ch05TodoIntegrationTest 测试类
+为什么需要：确保 Agent 能维护任务清单，并在长期未更新时自动提醒
+"""
+
 from pathlib import Path
 
 from agent_ch08.bootstrap import build_agent

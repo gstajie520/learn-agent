@@ -1,0 +1,228 @@
+===============================================
+Java 开发者 4 步速通 Hook 生命周期（45 分钟）
+===============================================
+
+第 1 步：理解 Hook 系统设计（15 分钟）
+---------------------------------
+打开 agent_ch14/core/hooks.py，按顺序理解：
+  1. HookContext 数据类 → 回调函数的输入（只读上下文）
+  2. HookResult 数据类 → 回调函数的输出（声明式影响）
+  3. HookRegistry 类 → 注册和执行回调链
+  4. 四种生命周期事件 → UserPromptSubmit/PreToolUse/PostToolUse/Stop
+
+Java 类比：
+  - HookRegistry = Spring 拦截器链管理器
+  - HookContext = 不可变的上下文 DTO（类似 RequestContext）
+  - HookResult = 命令对象（类似 Command Pattern）
+  - 回调链 = 责任链模式（Chain of Responsibility）
+
+
+第 2 步：理解后台事件系统（10 分钟）
+---------------------------------
+打开 agent_ch14/core/events.py，按顺序理解：
+  1. RuntimeEvent Protocol → 事件接口（必须实现的方法和属性）
+  2. EventInbox 类 → 线程安全的 FIFO 队列
+  3. runtime_event_message() → 把事件包装成 user 消息
+
+Java 类比：
+  - RuntimeEvent = interface Event { String getEventId(); Map toPayload(); }
+  - EventInbox = BlockingQueue<RuntimeEvent>（基于 ArrayDeque + Lock）
+  - threading.Condition = ReentrantLock + Condition
+  - publish() = queue.put() + condition.signalAll()
+  - drain() = queue.drainTo(list, limit)
+  - wait() = queue.poll(timeout)
+
+
+第 3 步：理解权限系统集成（10 分钟）
+---------------------------------
+打开 agent_ch14/core/permissions.py，理解：
+  1. PermissionPolicy.decide() → 决策入口方法
+  2. PermissionBehavior → 四种行为（passthrough/allow/ask/deny）
+  3. Hook 如何影响权限 → HookResult.permission_behavior
+
+Java 类比：
+  - PermissionPolicy = 策略模式接口
+  - PermissionBehavior = enum { PASSTHROUGH, ALLOW, ASK, DENY }
+  - decide() = Strategy.execute()
+
+重点理解：
+  - Hook 可以修改权限行为（例如：PreToolUse Hook 返回 permission_behavior="deny"）
+  - 多个 Hook 冲突时取最严格的（deny > ask > allow > passthrough）
+
+
+第 4 步：理解 Agent Loop 集成（10 分钟）
+---------------------------------
+打开 agent_ch14/core/loop.py，搜索关键字 "hook"：
+  1. AgentRunner.__init__ → 注入 HookRegistry
+  2. run() 方法 → 四个 Hook 触发点的位置
+  3. _execute_tool_chain() → PreToolUse 和 PostToolUse 的触发
+
+Java 类比：模板方法模式，固定流程中插入钩子点
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解 Hook 流程（5 个）
+[1] hooks.py:200  → HookRegistry.run() 开始执行回调链
+    观察：context.event（事件类型）、self._callbacks[event] 长度
+    目的：确认哪个事件触发，有多少个回调要执行
+
+[2] hooks.py:206  → 执行单个回调前（for 循环内）
+    观察：callback 函数对象、current 上下文数据
+    目的：看当前回调能访问什么数据（message/prepared/result）
+
+[3] hooks.py:227  → 合并回调结果后（_merge_results 调用后）
+    观察：combined（累积结果）、outcome（当前回调返回）
+    目的：理解 additional_context 如何累加、改写字段如何覆盖
+
+[4] events.py:56  → EventInbox.publish() 发布事件
+    观察：event.event_id、len(self._events)（队列长度）
+    目的：确认后台事件何时进入队列
+
+[5] events.py:65  → EventInbox.drain() 取出事件
+    观察：count（取出数量）、返回的 tuple
+    目的：确认主循环何时消费事件、取出多少条
+
+一次完整 Hook 执行的调用链：
+[1] → [2] → [3] → [2] → [3] → ...
+直到所有回调执行完或遇到 blocking_error/force_continue
+
+
+【可选断点】深入理解（3 个）
+[6] hooks.py:162  → HookResult.validate_for() 分组校验
+    观察：event、invalid 列表（不允许使用的字段）
+    目的：理解为什么 PreToolUse 不能返回 updated_output
+
+[7] hooks.py:253  → HookRegistry._normalize_input() 规范化输入
+    观察：original.call.id、updated.call.id（必须相同）
+    目的：理解如何防止 Hook 修改 call.id 或绕过 schema
+
+[8] events.py:76  → runtime_event_message() 包装事件
+    观察：payload JSON 结构
+    目的：理解事件如何变成 user 消息
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 context.event == "PreToolUse" 只在工具执行前停下
+
+
+核心概念速记
+---------------------------------
+Hook 系统本质 = 在固定节点触发回调，回调返回"命令对象"声明影响，核心循环根据命令修改行为
+
+字段归属校验 = PreToolUse 只能改输入，PostToolUse 只能改输出，Stop 只能强制继续
+
+回调链合并规则 = additional_context 累加，改写字段后者覆盖，权限取最严格（deny > ask > allow）
+
+后台事件注入 = 包装成 user 消息（不伪装成 tool result），保持消息配对契约
+
+防御性复制 = HookResult.__post_init__ 复制所有对象字段，防止 Hook 持有内部引用
+
+线程安全机制 = threading.Condition（类似 Java 的 ReentrantLock + Condition）保护队列
+
+
+为什么这样设计？
+---------------------------------
+Q: 为什么 Hook 不能直接修改 Agent 状态？
+A: 声明式设计保持核心循环简洁。Hook 只能"提议"影响，由循环决定是否采纳。
+   类比：前端 Redux 的 Action → Reducer 模式，Action 不直接修改 State。
+
+Q: 为什么 HookContext 要校验字段归属？
+A: 防止 Hook 读取错误阶段的数据。PreToolUse 不应该访问 result（还没执行）。
+   类比：Java 泛型的编译期检查，这里是运行时检查。
+
+Q: 为什么 HookResult 要防御性复制？
+A: 防止 Hook 持有内部状态引用，修改对象会破坏循环的不可变性。
+   类比：Java 的 Collections.unmodifiableList() 和 Defensive Copy。
+
+Q: 为什么后台事件要包装成 user 消息？
+A: 保持消息配对契约。伪装成 tool result 会导致配对错误（缺少对应的 tool_call）。
+   类比：HTTP 协议中请求和响应必须配对，不能凭空生成响应。
+
+
+学完你会掌握
+---------------------------------
+✓ Hook 系统的四种生命周期事件
+✓ 回调链的注册、执行和结果合并
+✓ 字段归属校验和防御性复制
+✓ 后台事件的线程安全队列机制
+✓ 权限系统和 Hook 的集成
+
+
+常见错误和解决方法
+---------------------------------
+错误 1: HookContractError: "PreToolUse 收到了其他事件的字段"
+原因：构造 HookContext 时传入了不该有的字段（例如 PreToolUse 传了 result）
+解决：检查 HookContext 构造，确保字段与事件类型匹配
+
+错误 2: HookContractError: "PreToolUse HookResult 不允许字段: updated_output"
+原因：PreToolUse 回调返回了只有 PostToolUse 才能用的字段
+解决：PreToolUse 只能返回 updated_input/blocking_error/permission_behavior
+
+错误 3: HookContractError: "updated_input 必须保留 tool call id"
+原因：Hook 修改输入时改变了 call.id
+解决：修改参数时保持 call.id 不变，只修改 arguments 内容
+
+错误 4: TypeError: "EventInbox 只接受 RuntimeEvent 对象"
+原因：向 EventInbox.publish() 传入了普通字典而不是实现了 RuntimeEvent 的对象
+解决：确保事件对象有 event_id 属性和 to_payload() 方法
+
+
+实践练习
+---------------------------------
+练习 1: 实现一个日志 Hook
+  - 在 PreToolUse 打印工具名和参数
+  - 在 PostToolUse 打印执行结果
+
+练习 2: 实现一个权限 Hook
+  - 根据工具名（如 PowerShell）返回 permission_behavior="ask"
+  - 测试是否影响权限决策
+
+练习 3: 实现一个后台任务
+  - 用 threading.Thread 执行耗时操作
+  - 完成后 publish RuntimeEvent 到 EventInbox
+  - 在主循环中 drain 事件并打印
+
+
+FAQ 常见问题
+---------------------------------
+Q1: Hook 系统支持异步回调吗？
+A: 支持。回调函数可以是 async 函数，返回 Awaitable[HookResult]。
+   HookRegistry.run() 会检测并 await 结果。
+
+Q2: 回调链中某个回调抛异常会怎样？
+A: 当前实现不捕获，异常会向上传播中断循环。
+   生产环境应在 HookRegistry.run() 外层捕获，决定是跳过还是中断。
+
+Q3: 多个 Hook 返回不同的 permission_behavior 怎么办？
+A: 取最严格的。优先级：deny > ask > allow > passthrough。
+   类似多个安全策略取交集（最严格的生效）。
+
+Q4: EventInbox 的 wait() 方法会一直阻塞吗？
+A: 可以设置 timeout 参数。超时返回空 tuple。
+   类似 Java 的 queue.poll(timeout, TimeUnit.SECONDS)。
+
+Q5: Hook 可以修改消息历史吗？
+A: 不能直接修改。但可以通过 additional_context 追加 system 消息。
+   这样既能补充信息，又不破坏已有历史。
+
+Q6: 为什么 HookResult.additional_context 只能是 system 消息？
+A: 防止 Hook 伪造 assistant/tool 配对。system 消息是旁白，不影响配对契约。
+   类似电影中的画外音，不影响剧情连贯性。
+
+Q7: 后台事件的 idempotency_key 有什么用？
+A: 防止重复处理。例如网络重传导致同一事件发布多次，可以根据幂等键去重。
+   类似分布式系统的幂等性保证。
+
+
+下一步学习
+---------------------------------
+阅读完本章后，建议：
+1. 阅读完整的 loop.py，看 Hook 如何集成到主循环
+2. 阅读 tests/test_hooks.py，看如何测试 Hook 系统
+3. 实践上述三个练习，加深理解
+4. 进入下一章，学习更高级的 Agent 特性

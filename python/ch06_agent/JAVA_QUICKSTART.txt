@@ -1,0 +1,162 @@
+===============================================
+Java 开发者 3 步速通子 Agent + TODO 跟踪（45 分钟）
+===============================================
+
+第 1 步：理解 TODO 跟踪器（10 分钟）
+---------------------------------
+打开 features/todos.py，理解 TODO 跟踪机制：
+  核心类：TodoTracker（实现 ToolRoundObserver 协议）
+  核心方法：observe_tool_round（每轮工具执行后回调）
+  检测逻辑：_check_stale_plan（3 轮未更新触发提醒）
+
+Java 类比：
+  TodoTracker = @Component 实现 ToolRoundObserver 接口
+  observe_tool_round = @EventListener 监听工具执行事件
+  _snapshot = 快照对象记录当前计划状态
+
+关键理解：
+  - todo_write 时记录快照 + 重置计数器
+  - 每轮 observe_tool_round 检查计数器
+  - 达到 3 轮未更新时通过 Hook 注入提醒
+
+
+第 2 步：理解子 Agent 机制（20 分钟）
+---------------------------------
+打开 features/subagents.py，按顺序阅读：
+  1. SubagentTool.__init__  → 工厂注入（创建独立实例）
+  2. task 工具定义          → 委派任务的接口
+  3. handler 逻辑           → 创建隔离的 AgentRunner
+
+重点理解父子 Agent 的隔离与共享：
+  隔离：
+    - 独立的消息历史（messages）
+    - 独立的工具注册表（ToolRegistry）
+    - 独立的 TODO 跟踪器（TodoTracker）
+
+  共享：
+    - HookRegistry（事件系统）
+    - PermissionPolicy（权限策略）
+    - workspace + identity（工作区和身份）
+
+Java 类比：
+  SubagentTool = @Service 委派服务
+  ModelClientFactory = Supplier<ModelClient>
+  ToolRegistryFactory = Supplier<ToolRegistry>
+  父子隔离 = 每次 new AgentRunner(独立依赖)
+  父子共享 = 构造时传入相同的 Hook/Policy 实例
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解 TODO 跟踪（5 个）
+[1] todos.py:85  → observe_tool_round() 方法开始
+    观察：tool_name（刚执行的工具）、_rounds_since_write（计数器）
+    目的：确认每轮都在回调
+
+[2] todos.py:88  → 检测到 todo_write 工具
+    观察：arguments 中的计划内容、即将记录快照
+    目的：理解快照记录时机
+
+[3] todos.py:94  → _check_stale_plan() 开始
+    观察：_snapshot（当前快照）、_rounds_since_write（计数）
+    目的：检查是否满足过期条件
+
+[4] todos.py:99  → 检测到计划过期（3 轮未更新）
+    观察：即将触发 Hook 提醒
+    目的：理解如何通知模型更新计划
+
+[5] todos.py:105  → Hook 提醒消息注入
+    观察：提醒内容、_rounds_since_write 重置
+    目的：确认提醒机制工作
+
+一次完整运行的调用链（假设 3 轮未更新）：
+[1] → [3]（第 1 轮，计数+1）
+[1] → [3]（第 2 轮，计数+1）
+[1] → [3]（第 3 轮，计数+1）
+[1] → [3] → [4] → [5]（第 4 轮，触发提醒）
+
+
+【必打断点】理解子 Agent 委派（3 个）
+[6] subagents.py:78  → SubagentTool.handler() 开始
+    观察：task 参数（委派的任务描述）
+    目的：确认父 Agent 传入的子任务
+
+[7] subagents.py:87  → 创建独立的 AgentRunner
+    观察：新的 model_client、tool_registry、todo_tracker
+    目的：理解父子隔离机制
+
+[8] subagents.py:95  → 子 Agent 运行完成
+    观察：result.answer（子任务结果）、result.turn_count
+    目的：检查子 Agent 执行情况
+
+
+【可选断点】深入理解（2 个）
+[9] loop.py:185  → 循环通知观察器
+    观察：observer.observe_tool_round() 调用
+    目的：理解观察器协议的集成点
+
+[10] todos.py:120  → _install_hooks() 安装 Hook
+    观察：before_turn Hook 如何检查并注入提醒
+    目的：理解 Hook 与 TODO 的配合
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，理解 TODO 跟踪流程
+- 理解 TODO 后打断点 [6-8]，理解子 Agent 委派
+- 使用条件断点：如 _rounds_since_write == 3 只在过期时停下
+
+
+第 3 步：浏览核心集成点（15 分钟）
+---------------------------------
+快速浏览三个文件，了解整体架构：
+  - core/loop.py        → ToolRoundObserver 协议定义 + 观察器回调点
+  - bootstrap.py        → P06 Profile 组装 todo + subagent 能力
+  - core/profiles.py    → 章节能力白名单（P06 包含所有能力）
+
+不要深入细节，知道组装关系就行。
+
+
+核心概念速记
+---------------------------------
+TODO 快照 = todo_write 记录 + 每轮检查计数器 + 3 轮未更新触发 Hook
+
+观察器协议 = ToolRoundObserver 接口 + observe_tool_round 回调
+
+父子隔离 = 独立的历史/工具表/TODO 跟踪器（通过工厂创建）
+
+父子共享 = 共享的 Hook/权限/工作区（构造时传入相同实例）
+
+子 Agent 不能再委派 = system_prompt 禁止 + 保持任务边界清晰
+
+
+常见问题速查
+---------------------------------
+Q: 为什么 TODO 过期阈值是 3 轮？
+A: 经验值，太短容易误报，太长失去提醒意义。生产可配置。
+
+Q: 子 Agent 的 max_turns 为什么是 30？
+A: 子任务通常需要更多步骤，比父 Agent（20 轮）更宽松。
+
+Q: 为什么需要 ModelClientFactory 而不是直接传 ModelClient？
+A: 每次创建新实例，避免父子共享状态（如请求计数器）。
+
+Q: 子 Agent 能访问父 Agent 的消息历史吗？
+A: 不能，消息历史完全隔离，只能通过 task 参数传递上下文。
+
+Q: 如何测试 TODO 过期逻辑？
+A: 模拟 todo_write → 连续 3 次 observe_tool_round（不 write）→ 第 4 轮检查 Hook 提醒。
+
+Q: 观察器协议的优势是什么？
+A: 核心循环不感知 TODO 细节，符合开闭原则，易于扩展。
+
+
+学完你会掌握
+---------------------------------
+✓ TODO 跟踪器的快照和过期检测机制
+✓ 观察者模式在 Agent 循环中的应用
+✓ 父子 Agent 的隔离与共享设计
+✓ 工厂模式创建独立实例
+✓ Hook 与观察器的协同工作
+✓ 子 Agent 委派的实现原理

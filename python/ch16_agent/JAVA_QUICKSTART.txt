@@ -1,0 +1,224 @@
+===============================================
+Java 开发者 3 步速通：计划审批协议（45 分钟）
+===============================================
+
+第 1 步：从测试理解协议流程（15 分钟）
+---------------------------------
+打开 tests/test_ch16_protocol.py，理解完整流程：
+  1. 队友调用 submit_plan 提交计划
+  2. Lead 调用 review_plan 审批（approved=True/False）
+  3. 队友通过 wait_event 收到响应
+  4. shutdown 请求让队友优雅停止
+
+Java 类比：
+  submit_plan = 创建审批工单并发消息
+  review_plan = 工单状态迁移（pending→approved/rejected）
+  wait_event = BlockingQueue.take()
+  acknowledge_events = 消息确认（commit）
+
+核心流程：
+  队友 submit_plan
+    ↓
+  保存 pending 请求（ProtocolStore）
+    ↓
+  投递消息到 Lead（Mailbox）
+    ↓
+  Lead review_plan
+    ↓
+  状态迁移到终态（approved/rejected）
+    ↓
+  投递响应到队友
+    ↓
+  队友 run_events 消费事件并继续
+
+
+第 2 步：读协议核心代码（20 分钟）
+---------------------------------
+按顺序阅读三个文件：
+  1. features/protocol.py           → 领域模型和服务
+  2. adapters/protocol_json.py      → 持久化实现
+  3. features/mailbox.py            → 消息传递（快速浏览）
+
+重点理解：
+  - ProtocolRequest 的三个状态（pending/approved/rejected）
+  - ProtocolRuntime 的三个方法（submit/review/shutdown）
+  - PlanApprovalGate 的拦截逻辑（pending 自动 deny）
+  - JsonProtocolStore 的原子写入（temp + fsync + rename）
+
+
+核心概念速记
+---------------------------------
+协议状态机 = pending（等待）→ approved（批准）/ rejected（拒绝）
+
+Outbox 模式 = 先保存请求，再投递消息（保证至少一次传递）
+
+ack-after-processing = 处理完才确认，ack 失败只补确认（防消息丢失）
+
+计划门控 = pending 计划自动 deny 工具调用（approved 后放行）
+
+优雅关机 = Lead 发 shutdown → 队友确认 → 不再调用模型
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+【必打断点】理解协议流程（5 个）
+
+[1] protocol.py 中 submit_plan 方法开始
+    观察：sender（队友名）、content（计划内容）
+    目的：确认队友提交了什么计划
+
+[2] protocol_json.py 中 save_request 原子写入前
+    观察：request.status（应该是 pending）、expires_at_utc
+    目的：确认请求正确保存到 state.json
+
+[3] protocol.py 中 review_plan 方法开始
+    观察：request_id、approved（True/False）
+    目的：确认 Lead 做出了什么决策
+
+[4] protocol_json.py 中 resolve_request 状态迁移
+    观察：resolution.approved、resolution.content
+    目的：确认状态正确迁移到终态
+
+[5] loop.py 中 run_events 方法开始
+    观察：next_event.event_id、event.prompt
+    目的：确认队友收到了响应事件
+
+一次完整协议的调用链：
+[1] submit_plan → [2] save → 投递消息 → [3] review_plan → [4] resolve →
+投递响应 → [5] run_events → 队友继续执行
+
+
+【可选断点】深入理解（3 个）
+
+[6] protocol.py 中 PlanApprovalGate.evaluate
+    观察：request.status、决策结果（deny/passthrough）
+    目的：理解计划门控如何拦截工具
+
+[7] mailbox_json.py 中 post 方法
+    观察：消息如何写入 ready 目录
+    目的：理解 Mailbox 的四态迁移
+
+[8] teammates.py 中 acknowledge_events
+    观察：事件如何从 processing 移到 done
+    目的：理解 ack-after-processing 语义
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整协议流程
+- 理解主流程后再打可选断点深入细节
+- 观察 workspace/.agent_tutorial/protocol/state.json 的变化
+
+
+第 3 步：理解事件驱动机制（10 分钟）
+---------------------------------
+快速浏览两个文件，了解事件如何流转：
+  - core/loop.py          → 找 run_events 方法
+  - features/teammates.py → 找 drain_events 和 acknowledge_events
+
+关键理解：
+  - 协议消息如何从 Mailbox 流向 EventInbox
+  - run_events 如何消费事件并调用模型
+  - ack-after-processing 如何防止消息丢失
+
+不要深入细节：这些是基础设施层，知道协议通过事件传递即可。
+
+
+Java 类比速查表
+---------------------------------
+Python                  Java 对照                  用途
+--------------------------------------------------------------------
+ProtocolRequest         不可变 record             协议请求快照
+ProtocolStore           Repository<T>             持久化接口
+ProtocolRuntime         领域 Service              协议编排服务
+MailboxMessage          领域事件                  消息传递 DTO
+EventInbox              BlockingQueue<Event>      事件队列
+run_events()            消费者线程                事件驱动循环
+PlanApprovalGate        PermissionRule            权限拦截器
+ProtocolResolution      终态值对象                不可变审批结果
+state.json              单文件快照                类似 H2 嵌入式数据库
+原子写入                temp+fsync+rename         类似 WAL 日志
+
+
+学完你会掌握
+---------------------------------
+✓ 为什么需要结构化协议代替自然语言
+✓ Outbox 模式如何保证至少一次传递
+✓ ack-after-processing 如何防止消息丢失
+✓ 计划门控如何拦截未审批的危险操作
+✓ 优雅关机如何安全停止队友进程
+✓ 状态机为什么只能有唯一 resolution
+
+
+常见面试题 FAQ
+---------------------------------
+Q1: 为什么需要 expires_at_utc？
+A: pending 请求不能无限期等待。Lead 可能忘记审批或进程崩溃，过期后
+   自动拒绝避免队友永久阻塞。类似 CompletableFuture 的超时机制。
+
+Q2: 为什么 submit_plan 先保存再投递消息？
+A: Outbox 模式保证至少一次传递。保存成功但投递失败时，可以重试投递
+   而不会丢失请求。类似事务性发件箱表（Transactional Outbox）。
+
+Q3: 为什么 review_plan 需要检查 status == pending？
+A: 防止重复审批。状态机保证 pending → approved/rejected 是单向的，
+   已终态请求不能再次审批，类似订单状态机的幂等检查。
+
+Q4: ack 失败后如何保证不重复处理？
+A: ack 失败时事件身份保存到 _pending_event_acks，下次 run_events 只补
+   ack，不重新调用模型。history 和模型调用已完成，只是确认失败。
+
+Q5: PlanApprovalGate 返回 passthrough 是什么意思？
+A: passthrough 表示"我不做决策，交给其他规则"。approved 计划不应被门控
+   拒绝，但仍需其他权限规则（如沙箱检查）评估。类似 Spring Security 的
+   AccessDecisionVoter 返回 ABSTAIN。
+
+
+关键设计模式
+---------------------------------
+Repository 模式：
+  ProtocolStore 抽象持久化，JsonProtocolStore 提供文件实现
+
+状态机模式：
+  pending → approved/rejected，唯一 resolution 记录终态
+
+Outbox 模式：
+  请求先保存到 ProtocolStore，再投递到 Mailbox，保证至少一次传递
+
+事件驱动架构：
+  协议事件通过 EventInbox 传递，run_events 消费并调用模型
+
+策略模式：
+  PlanApprovalGate 作为 PermissionRule，pending 自动 deny
+
+
+文件依赖关系
+---------------------------------
+ProtocolRuntime (protocol.py)
+    ├── ProtocolStore (接口)
+    │   └── JsonProtocolStore (protocol_json.py)
+    ├── TeammateRuntime (teammates.py)
+    │   ├── MailboxStore (mailbox.py 接口)
+    │   │   └── FileMailboxStore (mailbox_json.py)
+    │   └── EventInbox (events.py)
+    └── PlanApprovalGate (PermissionRule)
+
+AgentRunner (loop.py)
+    └── run_events() 消费 EventInbox 中的协议事件
+
+
+下一步学习建议
+---------------------------------
+1. 运行测试：pytest tests/test_ch16_protocol.py -v
+2. 修改过期时间：改成 1 秒，观察 pending 请求自动拒绝
+3. 实现 FakeProtocolStore：练习 Repository 接口的内存实现
+4. 追踪消息流转：在 workspace/.agent_tutorial/protocol/ 目录观察 state.json 变化
+5. 追踪 Mailbox：在 workspace/.agent_tutorial/mailbox/{ready,processing,done} 观察文件迁移
+
+
+总结：协议系统三大职责
+---------------------------------
+1. 状态管理：维护 pending → approved/rejected 状态机
+2. 消息传递：通过 Mailbox 和 EventInbox 传递结构化协议消息
+3. 权限拦截：PlanApprovalGate 防止队友绕过审批执行危险操作
+
+记住：结构化协议不是限制队友，而是让 Lead 和队友有明确的协作契约，
+避免自然语言理解歧义导致的错误执行。

@@ -1,0 +1,156 @@
+===============================================
+Java 开发者 3 步速通第 5 章（45 分钟）
+===============================================
+
+第 1 步：理解观察器接口（10 分钟）
+---------------------------------
+打开 core/loop.py，找到 ToolRoundObserver 接口：
+  - before_model() → 返回临时指导消息
+  - record_tool_round() → 记录本轮调用的工具名
+
+Java 类比：
+  interface ToolRoundObserver {
+    List<ChatMessage> beforeModel();
+    void recordToolRound(List<String> toolNames);
+  }
+
+重点理解：
+  - 观察器只能被动观察，不能修改或阻断
+  - before_model 返回的消息不进入正式 history
+  - record_tool_round 在整轮工具执行完后才调用
+
+
+第 2 步：读 TODO 追踪器实现（20 分钟）
+---------------------------------
+打开 features/todos.py，按顺序阅读：
+  1. TodoItem 数据类    → 不可变任务项
+  2. _validate_todo_input → 严格 JSON 校验
+  3. TodoTracker.__init__ → 初始化状态和工具定义
+  4. _write_todos         → 工具 handler，替换全部任务
+  5. record_tool_round    → 计数器逻辑（按轮不按次）
+  6. before_model         → 达到 3 轮触发提醒
+
+Java 类比：
+  - TodoTracker 既是观察者，又提供工具
+  - _todos 类似 private final List<TodoItem>（会话级）
+  - _non_todo_tool_rounds 类似 private int counter
+  - before_model 类似 Spring 的 @PreHandle 拦截器
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] loop.py:123  → before_model() 调用点
+    观察：observer_guidance 是否为空、内容是什么
+    目的：确认临时提醒消息何时出现
+
+[2] loop.py:164  → record_tool_round() 调用点
+    观察：assistant.tool_calls 的工具名列表
+    目的：确认整轮工具执行完才记录
+
+[3] todos.py:109  → record_tool_round 方法开始
+    观察：tool_names、当前计数器值
+    目的：理解计数器如何累积和重置
+
+[4] todos.py:118  → before_model 方法开始
+    观察：_non_todo_tool_rounds、是否达到阈值
+    目的：确认防抖机制触发条件
+
+[5] todos.py:98  → _write_todos 方法开始
+    观察：arguments["todos"]、冻结后的 tuple
+    目的：理解完整快照替换逻辑
+
+一次完整运行的调用链：
+模型调用工具 → [2] 整轮结束 → [3] 计数器+1 → [1] 下次模型前 → [4] 检查是否提醒
+
+如果本轮包含 todo_write：
+[5] 执行 handler → 替换全部任务 → [3] 计数器重置为 0
+
+
+【可选断点】深入理解（3 个）
+[6] todos.py:30  → _validate_todo_input() 严格校验
+    观察：JSON 字段、未知字段拒绝逻辑
+    目的：理解为什么 prepare 能拦截坏参数
+
+[7] loop.py:122  → observer_guidance 构建
+    观察：临时消息如何拼到 messages 末尾
+    目的：理解为什么不进入 history
+
+[8] bootstrap.py:44  → TodoTracker 注入点
+    观察：tool_round_observer 参数传递
+    目的：理解组合根如何装配观察器
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 观察 _non_todo_tool_rounds 的变化：0 → 1 → 2 → 3 → 提醒 → 0
+- 使用条件断点：如 _non_todo_tool_rounds == 3 只在即将提醒时停下
+
+
+第 3 步：理解设计决策（15 分钟）
+---------------------------------
+思考以下问题，并在代码中找到答案：
+
+Q1: 为什么 before_model 返回的消息不进 history？
+A: 临时指导只对下次请求生效，持久化会污染长期历史并消耗 token。
+   代码位置：loop.py:123 直接拼到 request，不 append 到 self._history
+
+Q2: 为什么用完整快照而不是增量更新？
+A: 避免实现 add/update/delete 三个接口，模型生成完整 JSON 更简单。
+   代码位置：todos.py:98 直接替换 self._todos
+
+Q3: 为什么计数器按工具轮而不是调用次数？
+A: 一轮可能调用多个工具，按次数统计会误判。
+   代码位置：loop.py:161-163 整轮结束后才调用一次 record_tool_round
+
+Q4: 观察器和 Hook 有什么区别？
+A: Hook 可以修改或阻断，观察器只能被动观察和记录。
+   代码位置：loop.py:54-58 只读接口，没有返回 HookResult
+
+
+核心概念速记
+---------------------------------
+观察器模式 = TodoTracker 观察工具轮结束事件，但不能修改执行流程
+
+临时指导消息 = 只拼到本次 ModelRequest，不进入 history，下次自动消失
+
+完整快照提交 = todo_write 要求提交全部任务，不支持增量修改
+
+防抖机制 = 连续 3 轮未更新才提醒，避免每轮都骚扰模型
+
+会话级状态 = TODO 只存在于当前 AgentRunner，销毁时自动消失
+
+
+Java 开发者常见疑惑
+---------------------------------
+Q: TodoTracker 的状态为什么不持久化？
+A: 第 5 章只演示会话级状态管理，持久化属于第 6+ 章内容。
+
+Q: 为什么 _validate_todo_input 这么严格？
+A: 拒绝未知字段（set(value) != {"todos"}）是防御式编程，
+   避免模型生成的额外字段污染内部状态。
+
+Q: before_model 能返回 assistant 消息吗？
+A: 不能，只能返回 system 消息，避免伪造模型回答或工具结果。
+
+Q: 为什么防抖是 3 轮不是 5 轮或 10 轮？
+A: 经验值，平衡提醒及时性和骚扰度。可以通过 STALE_TOOL_ROUNDS 常量调整。
+
+
+学完你会掌握
+---------------------------------
+✓ 观察者模式在 Agent 中的应用
+✓ 临时指导消息的实现原理
+✓ 会话级状态管理的设计
+✓ 防抖机制的实现方式
+✓ 完整快照 vs 增量更新的权衡
+
+
+下一步建议
+---------------------------------
+1. 运行 tests/test_ch05_integration.py 验证防抖机制
+2. 修改 STALE_TOOL_ROUNDS 为 2，观察提醒频率变化
+3. 尝试添加另一个观察器（如工具调用统计）
+4. 对比第 4 章 Hook 和第 5 章观察器的设计差异

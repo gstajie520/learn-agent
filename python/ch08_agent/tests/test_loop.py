@@ -1,3 +1,10 @@
+"""核心循环的单元测试：验证 Agent 主循环的轮数限制和终止条件。
+
+这是什么：测试 AgentRunner 的执行流程和边界控制
+Java 类比：类似 AgentLoopTest 单元测试类
+为什么需要：确保 Agent 不会无限循环，且能在达到轮数上限时正确终止
+"""
+
 from dataclasses import dataclass
 
 from agent_ch08.bootstrap import build_agent

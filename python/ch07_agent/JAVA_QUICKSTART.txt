@@ -1,0 +1,182 @@
+===============================================
+Java 开发者 3 步速通 ch07 Skill 按需加载（50 分钟）
+===============================================
+
+第 1 步：从测试看目标（10 分钟）
+---------------------------------
+打开 tests/test_skills.py，理解 Skill 系统的输入输出：
+  输入：workspace 路径 + skills 目录名
+  输出：SkillRegistry（包含目录和加载工具）
+
+Java 类比：先读 SkillServiceTest 理解业务需求
+
+
+第 2 步：读核心 Skill 注册表（25 分钟）
+---------------------------------
+打开 agent_ch07/features/skills.py，按顺序阅读：
+  1. SkillRegistry.scan()      → 扫描阶段（只读 frontmatter）
+  2. SkillRegistry.load_skill() → 加载阶段（读取完整正文）
+  3. 路径安全函数               → 防路径穿越和符号链接逃逸
+  4. 异常定义                  → 业务异常类型
+
+重点理解：
+  - SkillRegistry = 只读配置注册表（类似 Spring 的 @Configuration）
+  - SkillSummary = DTO（只包含 name + description）
+  - _SkillRecord = 内部领域对象（保存完整路径信息）
+  - scan() 只读 frontmatter，不读正文
+  - load_skill() 重新校验路径并读取正文
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] skills.py:261  → SkillRegistry.scan() 方法开始
+    观察：workspace、skills_directory 参数
+    目的：确认扫描的根目录和 skills 子目录
+
+[2] skills.py:289  → 遍历 skills 目录的每个子目录
+    观察：entry（当前 Skill 目录）、manifest（SKILL.md 路径）
+    目的：理解如何发现 Skill
+
+[3] skills.py:299  → 解析 frontmatter 后
+    观察：summary.name、summary.description
+    目的：查看扫描阶段读取的元数据
+
+[4] skills.py:317  → load_skill() 方法开始
+    观察：name（要加载的 Skill 名称）
+    目的：模型调用 load_skill 时触发
+
+[5] skills.py:336  → 读取完整正文后
+    观察：body（frontmatter 后的正文内容）
+    目的：确认加载阶段返回的完整 Skill 内容
+
+一次完整流程的调用链：
+启动时：[1] → [2] → [3]（遍历所有 Skill）
+使用时：[4] → [5]（模型调用 load_skill）
+
+
+【必打断点】理解路径安全（3 个）
+[6] skills.py:71   → _validate_skill_name() 名称校验
+    观察：name（Skill 名称）、SKILL_NAME_PATTERN 正则
+    目的：理解为什么只允许 [a-z0-9-]
+
+[7] skills.py:135  → _resolve_skill_root() 解析 skills 目录
+    观察：workspace_root、skills_directory、target（解析后路径）
+    目的：理解如何防止 .. 和绝对路径
+
+[8] skills.py:113  → _checked_real_directory() 防逃逸
+    观察：path（逻辑路径）、physical（真实路径）
+    目的：理解 realpath 如何防止符号链接逃逸
+
+
+【可选断点】深入理解（2 个）
+[9] skills.py:153  → _read_frontmatter() 只读元数据
+    观察：selected（已读行）、何时遇到第二个 ---
+    目的：理解为什么正文错误不影响扫描
+
+[10] skills.py:341 → _handle_load() 工具处理器
+     观察：arguments（模型传入的参数）、领域错误如何映射成 tool_error
+     目的：理解工具如何把异常转换为模型可见错误
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打路径安全断点，观察防御逻辑
+- 使用条件断点：如 name == "python-style" 只在特定 Skill 停下
+
+
+第 3 步：浏览集成和接线（15 分钟）
+---------------------------------
+快速浏览三个文件，了解 Skill 如何被集成：
+  - agent_ch07/bootstrap.py   → build_agent 中注册 load_skill 工具
+  - tests/test_ch07_integration.py → 完整 Agent Loop 如何使用 Skill
+  - skills/python-style/SKILL.md  → 一个真实 Skill 示例
+
+不要深入细节，知道有什么就行。
+
+
+核心概念速记
+---------------------------------
+两级加载 = 扫描时只读 frontmatter（name + description）→ 使用时读完整正文
+
+路径安全边界 = 名称校验 + 相对路径限制 + realpath 防符号链接逃逸
+
+frontmatter = YAML 元数据（包裹在 --- 之间，必须包含 name 和 description）
+
+TOCTOU 防御 = 扫描后符号链接可能被替换，加载时重新校验路径
+
+为什么需要两级加载 = System Prompt 长度受限，几十个 Skill 全加载会超限
+
+目录预算 = 最多 100 条、8000 字节，不截断半条目录行
+
+
+学完你会掌握
+---------------------------------
+✓ 延迟加载模式的设计与实现
+✓ 路径安全边界的防御式编程
+✓ frontmatter 元数据解析
+✓ TOCTOU 攻击防御（Time-of-Check Time-of-Use）
+✓ 工具注册表的动态扩展
+✓ Python 路径校验与 Java Files API 对照
+
+
+常见问题（FAQ）
+---------------------------------
+Q1: 为什么扫描阶段不直接读取完整正文？
+A: System Prompt 有长度限制，可能有几十个 Skill。启动时只给目录（名称+描述），
+   模型判断需要哪个才调用 load_skill，节省 token 并提升响应速度。
+
+Q2: 为什么加载时要重新校验路径？
+A: 防止 TOCTOU 攻击。扫描时 skills/foo 可能指向安全目录，但攻击者可能在扫描后
+   把符号链接改为指向 /etc/passwd。加载时重新 realpath 并判断仍在边界内。
+
+Q3: Skill 名称为什么只允许 [a-z0-9-]？
+A: 防止路径穿越。如果允许 ../secret 或 Windows 设备名（NUL、CON），攻击者可以
+   构造恶意名称逃逸 workspace 边界或触发系统异常。
+
+Q4: frontmatter 必须包含哪些字段？
+A: name（等于目录名）和 description（单行描述）。name 用于路由，description
+   放进 System Prompt 让模型判断何时需要这个 Skill。
+
+Q5: 子 Agent 能调用 load_skill 吗？
+A: 可以。bootstrap.py 中 child_tools_factory 为子 Agent 注册了 load_skill，
+   但子 Agent 仍然没有 task 工具（不能再次委派子任务）。
+
+Q6: 目录预算是什么？
+A: 最多 100 条 Skill、8000 UTF-8 字节（可配置）。超出时截断，但不截断半条目录行，
+   保证每条目录完整。按名称排序保证稳定。
+
+Q7: SkillRegistry 是有状态的吗？
+A: 扫描后是不可变的。scan() 返回的注册表包含元数据快照，load_skill() 不修改
+   注册表状态，只是重新校验路径并读取文件。
+
+
+与前章对比
+---------------------------------
+ch06: 子 Agent（task 工具）+ TODO 追踪（todo_write 工具）
+ch07: ch06 基础上新增按需加载 Skill（load_skill 工具）
+
+新增文件：
+  - agent_ch07/features/skills.py（SkillRegistry 核心逻辑）
+  - tests/test_skills.py（Skill 单元测试）
+  - skills/python-style/SKILL.md（示例 Skill）
+
+修改文件：
+  - agent_ch07/bootstrap.py（注册 load_skill 工具）
+  - agent_ch07/core/profiles.py（P07 新增 "skills" 能力）
+
+
+Java 开发者关键对照
+---------------------------------
+SkillRegistry.scan()     = @PostConstruct 初始化方法
+SkillRegistry.load_skill() = 延迟加载服务方法
+SkillSummary             = DTO record
+_SkillRecord             = 内部领域对象
+frozenset                = Collections.unmodifiableSet()
+Path.resolve(strict=True) = Files.realPath() + exists 检查
+_validate_skill_name     = Bean Validation 参数校验
+_is_inside()             = 路径包含判断（relative_to 不抛异常）
+SkillError 子类          = 业务异常继承体系
+tool_error()             = 把领域异常转换为 API 错误响应

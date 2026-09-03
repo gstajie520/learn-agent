@@ -1,0 +1,178 @@
+===============================================
+Java 开发者 3 步速通第 9 章：长期记忆（45 分钟）
+===============================================
+
+第 1 步：从测试看目标（10 分钟）
+---------------------------------
+打开 tests/test_memory.py，理解记忆系统的输入输出：
+  输入：MemoryRecord（name, description, kind, body）
+  输出：manifest.json + MEMORY.md + <name>-<id>.md 文件
+
+关键测试场景：
+  - test_save_and_list：保存记忆后能查询到
+  - test_recall：跨会话选择相关记忆
+  - test_consolidate：整理合并重复记忆
+
+Java 类比：先读 MemoryRepositoryTest 理解持久化需求
+
+
+第 2 步：读核心记忆系统（20 分钟）
+---------------------------------
+按顺序阅读 features/memory.py：
+  1. MemoryRecord        → 不可变 record（name/description/kind/body）
+  2. MemoryStore         → Repository 层（文件事务 + 路径安全）
+  3. MemorySession       → Spring 拦截器（回合前后接入主循环）
+  4. 三个模型查询函数     → selector/extractor/consolidator
+
+重点理解：
+  - MemoryRecord = Java record（frozen dataclass）
+  - MemoryStore = Repository + 本地文件事务
+  - MemorySession = HandlerInterceptor（生命周期拦截）
+  - manifest.json = 数据库主表（权威指针）
+  - MEMORY.md = 查询视图（可重建）
+
+Java 角度三层架构：
+  MemoryRecord（值对象）
+  ↓
+  MemoryStore（Repository）
+  ↓
+  MemorySession（Service/拦截器）
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解记忆流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] memory.py:MemorySession.begin_turn()  → 回合开始前选择记忆
+    观察：query（用户问题）、selector 返回的名称列表
+    目的：看选择器如何从 MEMORY.md 挑选相关记忆
+
+[2] memory.py:MemorySession.before_model() → 模型请求前注入记忆
+    观察：selected_records、注入的 system 消息
+    目的：确认选中的记忆正文如何临时加入上下文
+
+[3] memory.py:MemorySession.complete()     → 回合结束后提取新记忆
+    观察：canonical_history、extractor 返回的 JSON
+    目的：看提取器如何从对话中识别新记忆
+
+[4] memory.py:MemoryStore.save()           → 保存记忆到文件
+    观察：records 列表、manifest 更新、文件写入
+    目的：理解文件事务如何原子提交
+
+[5] memory.py:_consolidate()               → 整理记忆（达到阈值时触发）
+    观察：pending_count、consolidator 返回的 source_names 和 records
+    目的：看如何合并重复记忆并替换旧文件
+
+一次完整运行的调用链：
+[1] begin_turn → [2] before_model → Agent Loop → [3] complete → [4] save
+触发整理时：[3] → [5] _consolidate → [4] save
+
+
+【可选断点】深入理解（3 个）
+[6] memory.py:MemoryStore._commit()   → 文件原子提交
+    观察：temp_dir、rename 操作、manifest 写入顺序
+    目的：理解临时目录 + 原子重命名的事务模式
+
+[7] memory.py:_select_memory_names()  → 选择器模型调用
+    观察：SELECTOR_SYSTEM_PROMPT、catalog 内容、模型返回 JSON
+    目的：理解无工具 side-query 如何工作
+
+[8] memory.py:MemoryRecord.__post_init__() → 记忆校验
+    观察：name/kind/body 的格式和长度限制
+    目的：理解为什么有些输入会抛 MemoryStoreError
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 len(selected_records) > 0 只在选中记忆时停下
+
+
+第 3 步：浏览集成点（15 分钟）
+---------------------------------
+快速浏览三个文件，了解记忆如何接入主循环：
+  - core/loop.py 的 TurnLifecycle  → 生命周期接口（begin/before/complete）
+  - bootstrap.py 的 P09 配置      → 如何装配 Store、Session 和策略
+  - tests/test_ch09_integration.py → 两个 Agent 实例共享文件记忆
+
+不要深入细节，知道有什么就行。
+
+
+核心概念速记
+---------------------------------
+记忆三文件 = manifest.json（权威）+ MEMORY.md（目录）+ <name>-<id>.md（正文）
+
+MemorySession 生命周期 = begin_turn → before_model → complete
+
+三个无工具 side-query = selector（选择）+ extractor（提取）+ consolidator（整理）
+
+文件事务模式 = 临时目录写入 → 原子 rename → manifest 最后更新
+
+为什么需要 manifest.json = MEMORY.md 可以重建，manifest 是唯一权威指针
+
+整理触发阈值 = 累积 5 条待处理记忆时自动合并去重
+
+记忆注入方式 = 临时 system 消息（只影响当前请求，不进入 canonical history）
+
+
+关键设计决策
+---------------------------------
+Q: 为什么 MEMORY.md 和 manifest.json 都要存在？
+A: manifest 是事务权威（哪些记忆当前有效），MEMORY.md 是轻量目录（供选择器阅读），
+   后者可以从前者重建，但分离后选择器不需要解析完整 JSON。
+
+Q: 为什么记忆不是普通工具？
+A: 如果模型能直接调用"写记忆"工具，会破坏事务一致性（写一半失败怎么办？）。
+   用无工具 side-query + 受控的 MemoryStore 能保证原子性。
+
+Q: 为什么记忆正文不直接追加到 canonical history？
+A: 记忆是辅助上下文，不应污染对话历史。用临时注入的方式，下次回合自动消失。
+
+Q: 为什么整理阈值是 5 条？
+A: 太低频繁调用模型浪费成本；太高累积过多冗余记忆。5 是经验平衡值。
+
+
+学完你会掌握
+---------------------------------
+✓ 文件级长期记忆的三层架构
+✓ 临时目录 + 原子 rename 的事务模式
+✓ 生命周期拦截器的设计
+✓ 无工具 side-query 的实现
+✓ manifest/目录/正文的三文件协议
+✓ 记忆选择、提取、整理的完整流程
+✓ Python-Java 数据持久化对照
+
+
+面试题速查（6 道）
+---------------------------------
+Q1: 第 9 章的记忆和第 8 章的压缩有什么区别？
+A: 压缩是在当前会话内减少 token，记忆是跨会话保留知识。
+   压缩丢失细节但保留对话脉络，记忆保留核心事实但不是完整对话。
+   两者互补：压缩管"这次聊天"，记忆管"下次还要知道什么"。
+
+Q2: 为什么 manifest.json 和 MEMORY.md 要分离？
+A: manifest 是事务权威，记录当前有效的记忆集合（JSON 格式，易解析）。
+   MEMORY.md 是轻量目录，供选择器快速扫描（Markdown 格式，模型友好）。
+   MEMORY.md 可以从 manifest 重建，分离后选择器不需要解析完整 JSON。
+
+Q3: 记忆的文件事务如何保证原子性？
+A: 先写临时目录（所有 .md 文件），最后原子 rename 到目标路径。
+   如果中途失败，临时目录会被丢弃，已有记忆不受影响。
+   manifest.json 最后更新，确保指针和文件一致。
+
+Q4: 为什么记忆不是模型可直接调用的普通工具？
+A: 普通工具调用可能被拒绝、重试或部分执行，破坏事务一致性。
+   用无工具 side-query（selector/extractor/consolidator）+ 受控 MemoryStore，
+   能保证选择、提取、整理的逻辑由系统控制，模型只提供决策输入。
+
+Q5: 记忆注入为什么用临时 system 消息而不是追加到 history？
+A: 记忆是辅助上下文，不应污染 canonical history。
+   临时注入只影响当前模型请求，下次回合自动消失。
+   这样 history 保持对话真相，记忆作为背景知识按需加载。
+
+Q6: 整理（consolidate）的触发时机和作用是什么？
+A: 当累积 5 条待处理记忆时触发（可配置阈值）。
+   作用：合并重复记忆、解决冲突、压缩冗余内容。
+   模型输出 source_names（要替换的旧记忆）和 records（整理后的新记忆），
+   系统删除旧文件，保存新文件，原子更新 manifest。

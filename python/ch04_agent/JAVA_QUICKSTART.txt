@@ -1,0 +1,157 @@
+===============================================
+Java 开发者 3 步速通 Agent Hook 生命周期（45 分钟）
+===============================================
+
+第 1 步：从测试看 Hook 契约（10 分钟）
+---------------------------------
+打开 tests/test_hooks.py，理解 Hook 系统的输入输出：
+  输入：HookContext（事件类型 + 事件相关字段）
+  输出：HookResult（deny/stop/修改指令）
+
+Java 类比：先读 HookServiceTest 理解观察者模式的用法
+
+重点理解四个生命周期事件：
+  1. UserPromptSubmit - 用户问题提交后触发
+  2. PreToolUse        - 工具执行前触发（可阻断）
+  3. PostToolUse       - 工具执行后触发（可修改结果）
+  4. Stop              - Agent 停止前触发（可追加总结）
+
+
+第 2 步：读核心 Hook 系统（20 分钟）
+---------------------------------
+打开 core/hooks.py，按顺序阅读：
+  1. HookContext       → 不可变上下文 DTO（frozen dataclass）
+  2. HookResult        → 不可变影响声明（deny/stop/append_messages）
+  3. HookRegistry      → 观察者注册表（按事件类型分组）
+
+打开 core/loop.py，找到四个 Hook 触发点：
+  1. run() 开始处         → UserPromptSubmit
+  2. _execute_tool() 前   → PreToolUse
+  3. _execute_tool() 后   → PostToolUse
+  4. run() 结束前         → Stop
+
+重点理解：
+  - HookContext 字段按事件类型校验（__post_init__）
+  - HookResult 通过 replace() 声明式修改
+  - 异步回调自动识别（inspect.iscoroutinefunction）
+  - tool_call_id 强配对：即使 deny 也要回填消息
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解 Hook 流程，按优先级打以下断点：
+
+【必打断点】理解 Hook 触发流程（5 个）
+[1] loop.py:174  → run() 开始，即将触发 UserPromptSubmit
+    观察：prompt（用户问题）、hooks 是否为 None
+    目的：确认 Hook 系统是否注入
+
+[2] hooks.py:220 → HookRegistry.run_user_prompt() 执行回调
+    观察：self._hooks["UserPromptSubmit"] 回调列表
+    目的：看哪些回调被注册了
+
+[3] loop.py:245  → _execute_tool() 前，即将触发 PreToolUse
+    观察：prepared.tool_name、prepared.arguments
+    目的：确认即将执行哪个工具
+
+[4] loop.py:252  → PreToolUse 回调返回后
+    观察：hook_result.deny（是否阻止执行）、hook_result.replace_prepared
+    目的：看 Hook 是否修改了工具调用
+
+[5] loop.py:268  → PostToolUse 回调返回后
+    观察：hook_result.replace_result（是否修改了结果）
+    目的：看 Hook 是否改写了工具输出
+
+一次完整运行的调用链（带 Hook）：
+[1] → [2] → [3] → [4] → invoke 工具 → [5] → 继续循环
+直到模型返回文本 → Stop Hook → 结束
+
+【可选断点】深入理解（3 个）
+[6] hooks.py:95  → HookContext.__post_init__() 字段校验
+    观察：event、message、prepared、result 哪些非空
+    目的：理解每个事件对应的字段契约
+
+[7] hooks.py:165 → HookResult.__post_init__() 契约校验
+    观察：deny_reason、replace_prepared、replace_result 合法性
+    目的：理解返回值的契约要求
+
+[8] loop.py:258  → tool_call_id 配对逻辑
+    观察：call.id、如何构造 tool_message
+    目的：理解为什么 deny 时也要回填消息
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 prepared.definition.name == "write_file" 只在特定工具停下
+
+
+第 3 步：理解权限与 Hook 协作（15 分钟）
+---------------------------------
+快速浏览两个文件，理解两层决策机制：
+  - core/permissions.py → 系统级权限决策（四态：allow/deny/ask/passthrough）
+  - core/loop.py        → Hook 在权限之后执行，但 Hook deny 会被尊重
+
+权限与 Hook 的区别：
+  权限层：系统级决策，deny 后直接跳过工具和 Hook
+  Hook 层：业务扩展点，deny 后跳过工具但仍触发 PostToolUse
+
+不要深入细节，知道有什么就行。
+
+
+核心概念速记
+---------------------------------
+Hook 生命周期 = 四个固定事件（UserPromptSubmit → PreToolUse → PostToolUse → Stop）
+
+tool_call_id 强配对 = 每个 tool_call 必须有且仅有一条 tool 消息（即使 deny/异常）
+
+Hook 契约 = HookContext 字段按事件校验，HookResult 声明式影响，不直接修改状态
+
+异步回调 = async def 回调自动识别，用 await 调用，类似 Java CompletableFuture
+
+不可变数据流 = frozen dataclass + replace() 创建新对象，防止回调间相互影响
+
+系统 deny 优先 = 权限 deny 后不触发 PreToolUse，Hook deny 后仍触发 PostToolUse
+
+
+学完你会掌握
+---------------------------------
+✓ Hook 生命周期的四个事件
+✓ 观察者模式在 Agent 中的应用
+✓ 不可变数据流和声明式修改
+✓ tool_call_id 强配对保证
+✓ 权限与 Hook 的协作关系
+✓ 同步/异步回调的识别与执行
+✓ Python async/await 与 Java CompletableFuture 对照
+
+
+常见问题（FAQ）
+---------------------------------
+Q: Hook 和直接在循环里加 if/else 有什么区别？
+A: Hook 是扩展点，新逻辑注册回调即可，不修改核心循环代码；
+   if/else 会让循环越来越复杂，违反开闭原则。
+
+Q: 为什么 Hook deny 后还要触发 PostToolUse？
+A: PostToolUse 用于审计和日志，即使工具未执行也要记录"被阻止"事件；
+   且 PostToolUse 看到的 result 是拒绝消息，可以追加审计信息。
+
+Q: 同步和异步 Hook 可以混用吗？
+A: 可以。HookRegistry 自动识别回调类型（inspect.iscoroutinefunction）；
+   同步回调直接调用，异步回调用 await 调用。
+
+Q: 如果 Hook 回调抛异常怎么办？
+A: PreToolUse 异常时视为 deny，回填错误消息；
+   PostToolUse 异常时保留原结果，记录 Hook 错误；
+   Stop 异常不影响最终返回。
+
+Q: 为什么需要 replace() 而不是直接修改字段？
+A: frozen dataclass 字段不可变，replace() 创建新对象；
+   确保每个回调看到一致的上下文，符合函数式编程原则。
+
+Q: Hook 能修改消息历史吗？
+A: 不能直接修改，但可以通过 append_messages 注入新消息；
+   Stop Hook 可以追加总结消息到最终历史。
+
+Q: 第三章的权限策略和第四章的 Hook 有什么关系？
+A: 权限在前，Hook 在后；权限 deny 后不触发 PreToolUse；
+   Hook deny 是业务逻辑层的阻断，权限 deny 是系统层的阻断。

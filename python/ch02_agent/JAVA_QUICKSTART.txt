@@ -1,0 +1,203 @@
+===============================================
+Java 开发者 3 步速通 Agent 工具系统（45 分钟）
+===============================================
+
+第 1 步：从测试看目标（10 分钟）
+---------------------------------
+打开 tests/test_ch02_tools.py，理解第 2 章的核心变化：
+  输入：用户问题 + 工具集（shell + 文件操作）
+  输出：RunResult(最终答案, 消息历史, 轮数)
+  重点：工具注册与章节隔离
+
+Java 类比：先读集成测试理解功能边界和依赖装配
+
+关键测试用例：
+  - test_p01_and_p02_tool_sets_are_separate  → 验证章节工具隔离
+  - test_composition_rejects_a_forged_profile → 验证配置安全性
+  - test_model_can_write_edit_read_and_glob_in_one_turn → 验证多工具协作
+
+
+第 2 步：读核心文件（20 分钟）
+---------------------------------
+按顺序阅读以下文件，理解新增抽象：
+
+1. core/profiles.py （5 分钟）
+   理解章节配置白名单机制：
+   - ChapterProfile = 不可变配置 DTO
+   - P01/P02 = 预定义常量（类似 public static final）
+   - profile_for_chapter() = 配置查找工厂
+
+2. core/commands.py （5 分钟）
+   理解命令执行边界：
+   - CommandResult = 命令结果值对象
+   - CommandRunner = 命令执行接口（Protocol）
+   - 为什么需要：隔离 subprocess 细节，便于测试
+
+3. core/filesystem.py （5 分钟）
+   理解文件系统边界：
+   - 5 种领域异常（路径安全、文本查找、编码、文件缺失、类型错误）
+   - WorkspaceFileSystem = 文件操作接口（Protocol）
+   - 为什么需要：定义安全的工作区文件操作契约
+
+4. bootstrap.py （5 分钟）
+   理解依赖组装：
+   - build_agent() = 组合根工厂方法
+   - 章节配置身份验证（is P01/P02）
+   - 根据章节选择工具集
+
+重点理解：
+  - Protocol = interface（运行时不强制，但有类型提示）
+  - frozenset = Collections.unmodifiableSet()
+  - dataclass(frozen=True) = 不可变 record
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+理解第 2 章新增特性的关键断点：
+
+【必打断点】理解工具执行流（5 个）
+[1] loop.py:150  → 进入 for turn 循环
+    观察：turn 编号、max_turns 限制
+    目的：确认循环开始状态
+
+[2] loop.py:155  → 获取工具注册表快照前
+    观察：self._tools 内容
+    目的：查看当前章节注册了哪些工具
+
+[3] loop.py:164  → 拿到模型回复后
+    观察：reply.finish_reason、reply.message.tool_calls
+    目的：判断模型要调用哪些工具
+
+[4] loop.py:185  → 准备工具调用（prepare 完成）
+    观察：prepared.tool_name、prepared.arguments、prepared.error
+    目的：检查工具参数校验结果
+
+[5] loop.py:196  → 工具授权决策后、执行前
+    观察：decision.allowed、decision.reason
+    目的：确认授权器是否批准执行
+
+一次完整的工具调用链：
+[1] → [2] → [3] → [4] → [5] → 回到 [1] 下一轮
+直到 [3] 处模型返回文本（tool_calls 为空）退出
+
+
+【必打断点】理解文件工具（3 个）
+[6] builtin_tools.py:54  → shell 工具 handler 开始
+    观察：arguments["command"]、context.workspace
+    目的：查看命令内容和工作目录
+
+[7] builtin_tools.py:119 → read_file handler 开始
+    观察：arguments["path"]、limit 参数
+    目的：查看读取路径和行数限制
+
+[8] builtin_tools.py:143 → write_file handler 开始
+    观察：arguments["path"]、arguments["content"]
+    目的：查看写入路径和内容
+
+
+【可选断点】深入配置和安全（2 个）
+[9] bootstrap.py:36  → 章节配置身份验证
+    观察：profile is P01、profile is P02 的结果
+    目的：理解为什么伪造配置会被拒绝
+
+[10] adapters/filesystem.py:XXX  → 路径安全校验
+     观察：路径解析、相对路径验证
+     目的：理解如何防止目录遍历攻击
+
+
+调试技巧：
+- 首次调试打前 5 个必打断点，走完完整工具调用流程
+- 理解主流程后，打断点 6-8 深入单个工具实现
+- 使用条件断点：如 call.tool_name == "read_file" 只在读文件时停下
+
+
+第 3 步：浏览支撑文件（15 分钟）
+---------------------------------
+快速浏览以下文件，了解工具实现细节：
+
+1. features/builtin_tools.py （7 分钟）
+   - 五个工具：shell、read_file、write_file、edit_file、glob
+   - 参数校验逻辑（_shell_args、_read_args 等）
+   - 错误转换（领域异常 → ToolResult）
+
+2. adapters/filesystem.py （5 分钟）
+   - LocalWorkspaceFileSystem 的真实实现
+   - 路径安全检查（防止 ../ 逃逸）
+   - UTF-8 强制校验
+
+3. config.py （3 分钟）
+   - OpenAI 兼容配置校验
+   - .env 文件查找机制
+   - ConfigurationError 快速失败
+
+不要深入每行代码，先建立全局视图。
+
+
+核心概念速记
+---------------------------------
+章节配置白名单 = 通过 is 身份验证防止伪造配置 DTO
+
+命令执行边界 = CommandRunner 接口隔离 subprocess 细节
+
+文件系统边界 = WorkspaceFileSystem 接口 + 5 种领域异常
+
+工具注册表快照 = 确保模型看到的工具和实际能执行的工具一致
+
+参数严格校验 = 拒绝多余字段，防止注入攻击
+
+路径安全检查 = 禁止 ../ 和绝对路径，防止目录遍历
+
+授权器 fail-closed 原则 = 授权系统故障时默认拒绝（安全优先）
+
+
+常见问题 FAQ
+---------------------------------
+Q1: 为什么需要 ChapterProfile，不能直接用 int 章节号？
+A1: Profile 是能力白名单，显式声明每章的功能边界。用 is 身份验证
+    防止调用方伪造配置 DTO（内容相同但不是预定义常量的对象会被拒绝）。
+    类似 Java 中只接受 enum 常量，不接受 new Enum(相同值)。
+
+Q2: Protocol 和 Java interface 有什么区别？
+A2: Protocol 是 Python 的结构化类型（structural typing），不需要显式继承。
+    只要实现了对应方法就满足契约，类似 Go 的 interface。
+    Java interface 是名义类型（nominal typing），必须显式 implements。
+
+Q3: 为什么 build_agent 要检查 `profile is P01 or profile is P02`？
+A3: 防止调用方创建 ChapterProfile(2, P02.capabilities) 这样内容相同
+    但不是预定义常量的对象。`is` 比较对象身份（内存地址），不是字段值。
+    这确保只能传入模块定义的固定常量，类似单例模式的安全检查。
+
+Q4: 第 2 章和第 1 章的核心区别是什么？
+A4: 三个关键变化：
+    - 新增章节配置白名单机制（profiles.py）
+    - 抽象命令执行和文件系统为接口（commands.py + filesystem.py）
+    - 增加四个文件工具（read_file、write_file、edit_file、glob）
+    核心循环逻辑（loop.py）基本保持不变。
+
+Q5: 为什么工具参数校验要拒绝多余字段（additionalProperties: False）？
+A5: 防止注入攻击和意外副作用。如果允许多余字段，恶意模型可能传入
+    {"path":"x","__proto__":...} 或 {"path":"x","sudo":true} 等危险参数。
+    严格校验确保只处理定义好的字段，避免参数污染。
+
+Q6: 路径安全检查具体做了什么？
+A6: WorkspaceFileSystem 确保所有路径：
+    - 必须是相对路径（不允许 /etc/passwd 或 C:\Windows）
+    - 解析后不能逃出工作区（禁止 ../../../etc/passwd）
+    - 最终绝对路径必须在 workspace 目录树下
+    类似 Java 中的 Path.normalize() + startsWith() 检查。
+
+Q7: 为什么授权器异常要默认拒绝（fail-closed）？
+A7: 安全系统设计原则：宁可误拒绝（假阴性），不可误通过（假阳性）。
+    如果授权器崩溃或抛异常时默认允许，攻击者可以故意触发异常来绕过授权。
+    loop.py:198-200 的 except Exception 确保任何授权失败都转为拒绝结果。
+
+
+学完你会掌握
+---------------------------------
+✓ 章节配置白名单机制（防止配置伪造）
+✓ 命令执行和文件系统的接口抽象
+✓ 工具注册表与快照机制
+✓ 路径安全边界与领域异常设计
+✓ 授权器的 fail-closed 原则
+✓ 多工具协作与消息配对验证
+✓ Python Protocol（结构化类型）与 Java interface 的对照

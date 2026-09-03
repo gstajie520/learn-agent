@@ -1,3 +1,10 @@
+"""消息模块的单元测试：验证消息构造和工具调用配对校验。
+
+这是什么：测试消息构建函数和工具调用合法性校验
+Java 类比：类似 MessageValidatorTest 单元测试类
+为什么需要：确保消息格式符合 OpenAI API 规范，且工具调用与结果正确配对
+"""
+
 from agent_ch08.core.messages import (
     MessageContractError,
     assistant_message,

@@ -1,3 +1,10 @@
+"""Skill 模块的单元测试：验证 Skill 加载、注册和路径安全边界。
+
+这是什么：测试 Skill 清单解析和按需加载机制
+Java 类比：类似 SkillRegistryTest 单元测试类
+为什么需要：确保 Skill 能从文件系统正确加载，且访问路径受到安全限制
+"""
+
 from pathlib import Path
 
 import pytest

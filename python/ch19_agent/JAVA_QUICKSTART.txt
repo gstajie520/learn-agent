@@ -1,0 +1,145 @@
+===============================================
+Java 开发者 3 步速通 Runtime Events（45 分钟）
+===============================================
+
+第 1 步：理解事件协议（10 分钟）
+---------------------------------
+打开 core/events.py，理解事件接口和队列：
+  RuntimeEvent 接口：event_id、context_identity、idempotency_key、to_payload
+  EventInbox 队列：publish、drain、wait
+  runtime_event_message：包装成 user 消息
+
+Java 类比：
+  RuntimeEvent = interface Event { String getId(); Map<String,Object> toPayload(); }
+  EventInbox = BlockingQueue<RuntimeEvent> + Condition
+  deque = ArrayDeque（双端队列）
+
+
+第 2 步：读主循环集成（20 分钟）
+---------------------------------
+打开 core/loop.py，按顺序阅读：
+  1. run_events() 入口                → 消费一条事件（行 256-296）
+  2. _inject_runtime_events()         → 批量注入事件（行 518-536）
+  3. _pending_event_acks 字段         → ack 失败重试（行 231、258-262）
+
+重点理解：
+  - 事件在两个安全点注入：循环开始前、模型返回文本后
+  - 事件包装成 user 消息，不伪装成 tool 消息
+  - ack 失败时保留租约，下次只重试确认
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解事件流，按优先级打以下断点：
+
+【必打断点】理解事件注入流程（5 个）
+[1] loop.py:341  → _inject_runtime_events 第一次调用（循环开始前）
+    观察：self._deferred_runtime_events、event_pump.drain_events() 返回值
+    目的：看哪些事件准备注入
+
+[2] loop.py:518  → _inject_runtime_events 方法内部
+    观察：events 批次、injectable 过滤结果、fresh 去重后事件
+    目的：理解事件过滤和去重逻辑
+
+[3] loop.py:534  → runtime_event_message 包装事件
+    观察：event.to_payload() 返回值、生成的 user 消息内容
+    目的：看事件如何变成 JSON 字符串
+
+[4] loop.py:389  → 模型返回文本后检查待处理事件
+    观察：event_pump.has_pending_work、是否 continue 循环
+    目的：理解为什么有事件时不直接返回
+
+[5] loop.py:282  → run_events 调用 _run 处理事件
+    观察：event.event_id、event.prompt、event.idempotency_key
+    目的：看单条事件如何触发一轮 Agent 循环
+
+一次完整事件处理的调用链：
+run_events[5] → _run[内部] → _inject_runtime_events[1,2]
+→ runtime_event_message[3] → append 到 history → 模型调用
+→ 检查待处理事件[4] → ack 或保留租约
+
+
+【可选断点】深入理解（3 个）
+[6] events.py:52  → EventInbox.publish() 发布事件
+    观察：event 对象、_events 队列长度
+    目的：理解后台线程如何发布事件
+
+[7] events.py:60  → EventInbox.drain() 取事件
+    观察：limit 参数、实际返回事件数量
+    目的：理解非阻塞取事件逻辑
+
+[8] loop.py:283  → ack 成功后的处理
+    观察：event_pump.acknowledge_events 调用
+    目的：理解事件确认机制
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 event.event_id == "specific-id" 只在特定事件停下
+
+
+第 3 步：浏览后台适配器（15 分钟）
+---------------------------------
+快速浏览三个文件，了解事件来源：
+  - adapters/background_json.py  → 后台任务注册表
+  - adapters/task_json.py        → 任务持久化存储
+  - adapters/cron_json.py         → 定时任务调度器
+
+不要深入细节，知道它们如何发布事件就行。
+
+
+核心概念速记
+---------------------------------
+事件驱动 = 后台线程发布事件 → 队列缓冲 → 主循环在安全点注入
+
+为什么是 user 消息 = 事件是外部输入，不是工具结果，保持消息配对完整性
+
+ack 机制 = 处理成功后确认，失败时保留租约，防止事件丢失
+
+幂等性 = event_id 去重 + idempotency_key，保证每个事件只处理一次
+
+context_identity = 区分系统事件（随时注入）和用户事件（只在该用户回合注入）
+
+EventInbox = 线程安全队列，用 Condition 实现阻塞等待
+
+
+学完你会掌握
+---------------------------------
+✓ 事件驱动架构的设计
+✓ 生产者消费者模式
+✓ 事件幂等性保证
+✓ ack 机制防止事件丢失
+✓ 为什么事件是 user 消息
+✓ context_identity 的作用
+
+
+常见问题速查
+---------------------------------
+Q: 为什么事件不是 tool 消息？
+A: 事件是外部输入，不是 Agent 主动调用工具的结果，伪装会破坏消息配对
+
+Q: 为什么需要 EventInbox？
+A: 后台线程不能直接修改历史（线程安全），队列保证 FIFO 顺序和同步
+
+Q: ack 失败后会发生什么？
+A: 保留到 _pending_event_acks，下次 run_events 只重试 ack，不重复处理
+
+Q: _seen_event_ids 的作用？
+A: 去重。重启后可能重新消费未 ack 事件，通过 event_id 保证幂等性
+
+Q: 为什么 deque 而不是 list？
+A: deque.popleft() 是 O(1)，list.pop(0) 是 O(n)，且天然支持 FIFO
+
+Q: context_identity 为什么影响注入时机？
+A: 系统事件随时注入，用户上下文事件只在该用户回合注入，防止上下文混淆
+
+
+面试重点
+---------------------------------
+1. 说出事件驱动架构的三个核心组件（接口、队列、注入点）
+2. 解释为什么事件是 user 消息而不是 tool 消息
+3. 描述 ack 机制如何防止事件丢失
+4. 说明如何保证事件幂等性（event_id + idempotency_key）
+5. 对比 EventInbox.drain 和 wait 的区别（阻塞 vs 非阻塞）
+6. 解释 context_identity 的作用（区分系统事件和用户事件）

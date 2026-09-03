@@ -1,3 +1,10 @@
+"""第八章集成测试：验证 Skill 按需加载和路径安全边界。
+
+这是什么：测试 P08 引入的 Skill 延迟加载功能
+Java 类比：类似 Ch08SkillIntegrationTest 测试类
+为什么需要：确保 Skill 不会在启动时全部加载，且文件访问受路径限制保护
+"""
+
 from pathlib import Path
 
 from agent_ch08.bootstrap import build_agent

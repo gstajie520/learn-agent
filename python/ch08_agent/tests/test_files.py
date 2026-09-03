@@ -1,3 +1,10 @@
+"""文件系统模块的单元测试：验证文件读写和路径安全边界。
+
+这是什么：测试文件操作工具的边界条件和错误处理
+Java 类比：类似 FileSystemServiceTest 单元测试类
+为什么需要：确保文件操作正确处理路径遍历攻击、编码错误等异常情况
+"""
+
 from pathlib import Path
 
 import pytest

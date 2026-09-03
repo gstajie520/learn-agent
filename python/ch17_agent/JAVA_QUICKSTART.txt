@@ -1,0 +1,231 @@
+===============================================
+Java 开发者 3 步速通 SQLite 任务认领（45 分钟）
+===============================================
+
+第 1 步：从测试看目标（15 分钟）
+---------------------------------
+打开 tests/test_task_sqlite.py，理解 SQLite 原子认领：
+  输入：identity（调用者身份）、lease_duration（租约时长）
+  输出：TaskClaim(task, claim_token, lease_expires_at_utc)
+
+关注点：
+  - claim_next 如何返回 in_progress 任务
+  - 租约到期后任务如何回到 pending
+  - 旧 claim_token 为何被拒绝
+  - 多个 worker 如何避免认领同一任务
+
+打开 tests/test_ch17_runtime.py，理解队友运行时：
+  输入：Lead 创建任务 DAG
+  输出：Teammate 自动认领并完成任务
+
+Java 类比：先读 TaskRepositoryTest 和 WorkerServiceTest 理解业务契约
+
+
+第 2 步：读核心认领逻辑（20 分钟）
+---------------------------------
+打开 adapters/task_sqlite.py，按顺序阅读：
+  1. TaskSQLiteStore.__init__  → 表结构和索引
+  2. claim_next               → 认领入口
+  3. _transaction             → 事务封装（BEGIN IMMEDIATE）
+  4. _claim                   → 认领核心逻辑
+  5. complete_task            → 完成逻辑（owner + token 校验）
+
+打开 features/work_stealing.py，理解认领 Service：
+  1. DirectTaskClaimService   → 领域 Service
+  2. register_claim_tools     → 注册工具
+  3. claim_next_task          → 工具处理器
+  4. complete_task            → 工具处理器
+
+重点理解：
+  - BEGIN IMMEDIATE = SELECT FOR UPDATE（悲观锁）
+  - claim_token = 乐观锁版本号（防重）
+  - lease_expires_at_utc = 租约到期时间（半开区间）
+  - owner 来自 ToolContext.identity（不可伪造）
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解 SQLite 认领（5 个）
+[1] task_sqlite.py:XXX  → claim_next() 入口
+    观察：identity、lease_duration_seconds
+    目的：确认认领参数
+
+[2] task_sqlite.py:XXX  → _transaction() 开始事务
+    观察：BEGIN IMMEDIATE 语句
+    目的：理解事务隔离级别
+
+[3] task_sqlite.py:XXX  → _claim() 扫描 ready 任务
+    观察：SQL WHERE 条件、ORDER BY priority DESC
+    目的：看如何筛选可认领任务
+
+[4] task_sqlite.py:XXX  → UPDATE tasks 写入 owner/token/lease
+    观察：claim_token UUID、lease_expires_at_utc
+    目的：确认认领写入内容
+
+[5] task_sqlite.py:XXX  → complete_task() 校验 owner/token
+    观察：当前 owner、claim_token 是否匹配
+    目的：理解权限校验逻辑
+
+一次完整认领的调用链：
+[1] → [2] → [3] → [4] → 模型执行 → [5]
+
+【必打断点】理解队友运行时（3 个）
+[6] teammates.py:XXX  → _run_worker() 循环开始
+    观察：worker 状态、mailbox 是否有消息
+    目的：理解优先级顺序
+
+[7] teammates.py:XXX  → mailbox 消息处理分支
+    观察：消息内容、是否调用模型
+    目的：看 mailbox 优先如何实现
+
+[8] teammates.py:XXX  → claim_next 空闲认领分支
+    观察：idle_polls 计数、是否达到上限
+    目的：理解空闲轮询策略
+
+一次完整队友执行的调用链：
+[6] → [7]（有消息）或 [8]（空闲）→ 模型执行 → 通知 Lead
+
+【可选断点】深入理解（2 个）
+[9] task_sqlite.py:XXX  → _reclaim_expired_tasks() 租约回收
+    观察：哪些任务过期、如何清空 owner/token
+    目的：理解租约到期机制
+
+[10] teammates.py:XXX  → poll_wakeup.wait() 空闲等待
+    观察：timeout 参数、唤醒原因（新消息 or stop）
+    目的：理解等待器唤醒逻辑
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整认领
+- 理解认领流程后再打断点 6-8 看队友运行时
+- 使用条件断点：如 identity == "teammate-1" 只看特定队友
+- 观察 SQLite 文件：用 DB Browser 打开 tasks.db 查看表数据
+
+
+第 3 步：理解队友运行时（10 分钟）
+---------------------------------
+打开 features/teammates.py，按顺序阅读：
+  1. TeammateRuntime.__init__  → 依赖注入（MailboxStore、EventInbox）
+  2. start                     → 启动队友线程
+  3. _run_worker               → 工作循环（mailbox 优先 → 空闲认领）
+  4. send_message              → 消息投递
+  5. stop                      → 停止逻辑
+
+关注点：
+  - mailbox 优先级如何实现（代码顺序）
+  - poll_wakeup 如何唤醒空闲线程（threading.Event）
+  - 为何复用 AgentRunner 而非每次创建（历史保留 + 成本）
+  - idle 与 shutdown 的区别（等待 vs 关闭）
+
+不要深入细节：mailbox_json、protocol、background 是辅助功能，先跳过。
+
+
+核心概念速记
+---------------------------------
+原子认领机制 = BEGIN IMMEDIATE { 扫描 ready → 检查依赖 → 写入 owner/token/lease } COMMIT
+
+租约到期回收 = 半开区间 [start, end) 到期后清空 owner/token，旧 token 仍无效
+
+claim_token 防重 = UUID 一次性令牌，完成时必须匹配当前有效 token
+
+队友优先级 = mailbox 优先 → protocol gate → 空闲 claim_next → idle 休眠
+
+为何禁止 create_task = 防止空闲轮询无限扩张任务图，保证收敛
+
+owner 身份绑定 = ToolContext.identity 不可伪造，类比 Spring Security principal
+
+
+Python-Java 对照速查
+---------------------------------
+LeasedTaskStore Protocol = Repository<Task> interface
+BEGIN IMMEDIATE = SELECT FOR UPDATE（悲观锁）
+claim_token = 乐观锁版本号（防重复提交）
+threading.Event = CountDownLatch（线程等待/唤醒）
+threading.Lock = ReentrantLock（互斥锁）
+executescript = batch update（批量 SQL）
+cursor.fetchone = queryForObject（查询单行）
+TeammateRuntime = WorkerService（工作者管理器）
+
+
+面试题速查
+---------------------------------
+Q1: 为什么用 BEGIN IMMEDIATE 而非 BEGIN DEFERRED？
+A: BEGIN IMMEDIATE 立即获取写锁，防止扫描和写入之间被插入。
+   DEFERRED 可能导致两个 worker 同时扫描到同一个 ready 任务。
+   类比 Java 的 SELECT FOR UPDATE。
+
+Q2: 租约到期后为何旧 claim_token 仍无效？
+A: claim_token 绑定到一次认领。过期回收清空 owner 和 token，
+   新认领生成新 token。允许旧 token 会覆盖新 worker 进度。
+   类比 JWT 过期后不能续期，只能重新登录。
+
+Q3: 队友为何不能调用 create_task 工具？
+A: 空闲轮询会让队友不断认领新任务。如果队友能创建任务，
+   会无限扩张任务图，永远不会 idle。只有 Lead 能规划任务。
+
+Q4: mailbox 优先级如何实现？
+A: _run_worker 循环先检查 mailbox，有消息直接处理。
+   没消息才检查 protocol gate，最后才尝试 claim_next。
+   这是代码顺序保证的，不是配置项。
+
+Q5: 空闲等待如何唤醒？
+A: poll_wakeup 是 threading.Event，收到新消息调用 set() 唤醒。
+   stop 信号也会唤醒。避免忙等浪费 CPU。
+   类比 Java 的 Condition.await() + signalAll()。
+
+Q6: 为何 owner 不能由模型填写？
+A: owner 来自 ToolContext.identity，是框架注入的可信身份。
+   让模型填写 owner 可能伪造身份，绕过权限检查。
+   类比 Spring Security 的 @AuthenticationPrincipal。
+
+Q7: SQLite 如何支持多个 worker 并发认领？
+A: BEGIN IMMEDIATE 串行化写入，每个 worker 独立事务。
+   SQLite 的 WAL 模式允许多读并发。认领失败重试下一个任务。
+   类比数据库连接池 + 乐观锁重试。
+
+Q8: 为何队友复用 AgentRunner 而非每次创建？
+A: 历史保留上下文，模型能记住之前的对话。避免重复初始化。
+   降低模型 token 成本（system prompt 只发一次）。
+   idle 是"空闲等待"，不是"关闭销毁"。
+
+
+学完你会掌握
+---------------------------------
+✓ SQLite 原子认领机制（BEGIN IMMEDIATE 事务）
+✓ 租约到期回收机制（半开区间 + 过期清空）
+✓ claim_token 防重机制（一次性令牌）
+✓ 队友优先级策略（mailbox 优先 → 空闲认领）
+✓ 空闲轮询策略（idle_max_polls 限制）
+✓ owner 身份绑定（ToolContext.identity 不可伪造）
+✓ Repository 模式（LeasedTaskStore 接口 + SQLite 实现）
+✓ Worker 模式（TeammateRuntime 管理 + _Worker 执行）
+
+
+常见错误排查
+---------------------------------
+错误 1：task_claim_mismatch
+原因：owner 或 claim_token 不匹配
+排查：检查 complete_task 传入的 claim_token 是否正确
+
+错误 2：task_lease_expired
+原因：租约已过期，任务回到 pending
+排查：检查 lease_duration_seconds 是否过短
+
+错误 3：task_blocked
+原因：任务依赖未完成
+排查：检查 blocked_by 列表中的任务状态
+
+错误 4：database is locked
+原因：SQLite 写锁超时
+排查：检查是否有长事务未提交，考虑启用 WAL 模式
+
+
+下一步学习建议
+---------------------------------
+1. 动手运行测试：pytest tests/test_task_sqlite.py -v
+2. 修改租约时长：改成 3 秒，观察过期回收
+3. 增加队友数量：启动 3 个 teammate，观察并发认领
+4. 实现自定义 LeasedTaskStore：用 Redis 或 Postgres 替换 SQLite
+5. 观察 SQLite 文件：用 DB Browser 查看 tasks.db 表结构和数据

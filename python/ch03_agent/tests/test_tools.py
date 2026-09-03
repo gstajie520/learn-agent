@@ -1,4 +1,11 @@
-﻿from agent_ch03.core.commands import CommandResult
+﻿"""工具注册表测试。
+
+这是什么：测试工具注册、参数校验（prepare）、执行（invoke）、错误转换。
+Java 类比：类似 ToolRegistryTest，验证工具查找、JSON 解析、参数校验逻辑。
+为什么需要：工具调用是外部边界，必须保证未知工具、错误 JSON 都能转成稳定结果。
+"""
+
+from agent_ch03.core.commands import CommandResult
 from agent_ch03.core.messages import tool_call
 from agent_ch03.core.tools import ToolContext, ToolDefinition, ToolRegistry, tool_error
 from agent_ch03.features.builtin_tools import create_shell_tool

@@ -1,3 +1,10 @@
+"""对话历史压缩模块的单元测试：验证消息合并和长度计算逻辑。
+
+这是什么：测试 Compaction 功能的压缩算法正确性
+Java 类比：类似 CompactionServiceTest 单元测试类
+为什么需要：确保对话历史能正确合并工具调用对，避免超过上下文窗口限制
+"""
+
 import json
 from pathlib import Path
 

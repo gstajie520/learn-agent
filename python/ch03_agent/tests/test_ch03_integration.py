@@ -1,4 +1,11 @@
-﻿from pathlib import Path
+﻿"""第 3 章权限策略集成测试。
+
+这是什么：端到端测试 Agent 运行时权限策略的完整流程，包括审批、审计、工作区边界。
+Java 类比：类似 IntegrationTest，使用 Fake 模型和真实文件系统验证整体行为。
+为什么需要：单元测试验证单个组件，集成测试验证各层协作是否正确。
+"""
+
+from pathlib import Path
 
 from agent_ch03.adapters.filesystem import LocalWorkspaceFileSystem
 from agent_ch03.bootstrap import build_agent

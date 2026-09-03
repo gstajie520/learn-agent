@@ -1,4 +1,11 @@
-﻿from pathlib import Path
+﻿"""文件系统适配器测试。
+
+这是什么：测试 LocalWorkspaceFileSystem 的路径安全检查、UTF-8 读写、精确编辑、glob 匹配。
+Java 类比：类似 FileSystemAdapterTest，验证路径逃逸防护和文件操作正确性。
+为什么需要：文件系统是工作区边界，必须保证路径安全且操作符合预期。
+"""
+
+from pathlib import Path
 
 import pytest
 

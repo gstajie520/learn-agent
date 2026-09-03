@@ -1,3 +1,10 @@
+"""第二章工具集成测试：验证 P01 和 P02 配置的工具注册正确性。
+
+这是什么：测试不同章节 Profile 加载的工具集差异
+Java 类比：类似 Ch02ToolsIntegrationTest 测试类
+为什么需要：确保 P01 只有 shell，P02 增加了文件工具，避免能力越级
+"""
+
 from pathlib import Path
 
 from agent_ch08.adapters.filesystem import LocalWorkspaceFileSystem
@@ -10,6 +17,13 @@ from agent_ch08.features.builtin_tools import create_chapter_two_tools
 
 
 class FakeModel:
+    """测试用的模型 Mock。
+
+    这是什么：预设响应队列的假模型实现
+    Java 类比：类似 Mockito.mock(ModelClient.class) 的测试替身
+    为什么需要：避免真实 API 调用，让测试快速且可预测
+    """
+
     def __init__(self, replies: list[ModelReply]) -> None:
         self.replies = replies
         self.requests = []
@@ -20,6 +34,13 @@ class FakeModel:
 
 
 class FakeCommandRunner:
+    """测试用的命令执行器 Mock。
+
+    这是什么：返回固定成功结果的假命令执行器
+    Java 类比：类似 when(runner.run()).thenReturn(successResult) 的 Stub
+    为什么需要：避免真实执行 PowerShell 命令，让测试可以在任何环境运行
+    """
+
     def run(self, command: str, cwd: str, timeout_ms: int | None = None) -> CommandResult:
         return CommandResult("unused", 0, False, False)
 

@@ -1,0 +1,212 @@
+===============================================
+Java 开发者 4 步速通恢复策略（45 分钟）
+===============================================
+
+第 1 步：从测试理解故障场景（10 分钟）
+---------------------------------
+打开 tests/test_recovery.py，理解三种故障：
+  输入：ModelRequest（消息历史 + 工具定义）
+  输出：ModelReply（可能成功、截断、过长、限流）
+  恢复：RecoveryManager 内部重试，外层无感知
+
+Java 类比：先读 ResilienceServiceTest 理解容错需求
+
+三种故障类型：
+  1. 输出截断：finish_reason == "length"
+     → 第一次升级预算到 64000，第二次启动续写
+  2. 输入过长：ModelPromptTooLongError
+     → 保留 system，压缩历史，一次请求只压缩一次
+  3. 临时故障：429（限流）/ 529（过载）
+     → 指数退避 + Jitter，连续 3 次 529 切 fallback
+
+
+第 2 步：读恢复管理器核心循环（20 分钟）
+---------------------------------
+打开 features/recovery.py，按顺序阅读：
+  1. RecoveryConfig（不可变配置 record）
+  2. RecoveryState（可变状态对象）
+  3. RecoveryManager.complete()（主恢复循环）
+  4. _retry_transient()（退避逻辑）
+
+重点理解：
+  - RecoveryManager = Resilience Service（Hystrix/Resilience4j）
+  - CancellationToken = AtomicBoolean + 监听器集合
+  - while True 循环 = 一次逻辑请求内部的多次物理重试
+  - 外层 AgentRunner 只调用一次 executor.complete()
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解恢复流程，按优先级打以下断点：
+
+【必打断点】理解主恢复循环（5 个）
+[1] recovery.py:236  → RecoveryManager.complete() while 循环开始
+    观察：request_messages、state.current_max_tokens、state.current_model
+    目的：确认初始请求状态
+
+[2] recovery.py:245  → 即将调用模型前
+    观察：effective.model、effective.max_tokens
+    目的：检查当前使用哪个模型、预算是多少
+
+[3] recovery.py:275  → 检查 finish_reason
+    观察：reply.finish_reason（"stop" / "length" / "content_filter"）
+    目的：判断是正常结束还是需要恢复
+
+[4] recovery.py:248  → 捕获 ModelRateLimitError（429）
+    观察：error.retry_after、transient_failures 计数
+    目的：理解限流如何触发退避
+
+[5] recovery.py:260  → 捕获 ModelPromptTooLongError
+    观察：request_messages 长度、压缩前后对比
+    目的：理解输入过长如何触发压缩
+
+一次完整运行的调用链：
+[1] → [2] → [3] → 成功返回（或进入恢复分支）
+如果截断：[3] → 升级预算 → [1]（重试）
+如果过长：[5] → 压缩 → [1]（重试）
+如果限流：[4] → 退避等待 → [1]（重试）
+
+
+【可选断点】深入理解（3 个）
+[6] recovery.py:297  → _retry_transient() 退避逻辑
+    观察：delay 计算、_parse_retry_after() 或 _backoff_delay()
+    目的：理解指数退避 + Jitter 如何计算
+
+[7] recovery.py:330  → _backoff_delay() 指数退避公式
+    观察：base = base_delay * 2^attempt、jitter 随机值
+    目的：理解为什么要加随机抖动
+
+[8] adapters/openai_chat.py:XXX  → _map_api_status_error()
+    观察：status_code（429/529/400）、error_code
+    目的：理解供应商错误如何映射为领域异常
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整恢复流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 transient_failures == 2 只在第 2 次重试停下
+
+
+第 3 步：理解异常映射机制（10 分钟）
+---------------------------------
+快速浏览两个文件，了解异常转换：
+  - adapters/openai_chat.py  → _map_api_status_error() 映射函数
+  - core/model.py            → 领域异常定义（ModelRateLimitError 等）
+
+不要深入 HTTP 细节，知道"适配器层负责转换"就行。
+
+关键点：
+  - 429 + Retry-After 头 → ModelRateLimitError
+  - 529 → ModelOverloadedError
+  - 400 + context_length_exceeded → ModelPromptTooLongError
+  - 核心层不依赖 OpenAI SDK，只依赖领域异常
+
+
+第 4 步：理解如何接入 Agent Loop（5 分钟）
+---------------------------------
+快速浏览两个文件，了解接入点：
+  - core/loop.py    → ModelRequestExecutor 接口
+  - bootstrap.py    → 依赖组装（哪些请求用恢复层）
+
+关键理解：
+  - AgentRunner 依赖 ModelRequestExecutor 接口（Strategy 模式）
+  - 第 1-10 章注入 raw model，第 11 章注入 RecoveryManager
+  - 记忆/压缩/子 Agent 的模型请求继续用 raw model（避免递归）
+
+
+核心概念速记
+---------------------------------
+恢复层本质 = 装饰器模式，包装 ModelClient，透明增加容错能力
+
+三种故障恢复 = 输出截断（升级+续写）、输入过长（压缩）、临时故障（退避+切换）
+
+为什么要归一化异常 = 核心层供应商无关，切换 API 只改适配器
+
+指数退避 + Jitter = base * 2^attempt + random(0..upper)，避免惊群
+
+Fallback 模型切换 = 连续 3 次 529 说明主模型持续不可用
+
+CancellationToken 限制 = Python 同步 SDK 无法中止运行中请求，只能在边界检查
+
+
+学完你会掌握
+---------------------------------
+✓ 三种故障的识别和恢复策略
+✓ 供应商错误归一化的必要性
+✓ 指数退避与 Jitter 的原理
+✓ Fallback 模型切换的时机
+✓ 取消与超时机制的实现
+✓ 续写与压缩的协同工作
+✓ 装饰器模式的实际应用
+✓ Strategy 模式的接入设计
+
+
+常见陷阱
+---------------------------------
+✗ 摘要请求套恢复层 → 会递归：输入过长→摘要→输入过长
+  ✓ 摘要请求使用 raw ModelClient
+
+✗ 单次 529 就切 fallback → 偶发性过载应该重试
+  ✓ 连续 3 次 529 才切换
+
+✗ 固定间隔重试 → 惊群效应，同时涌入
+  ✓ 指数退避 + 随机 Jitter
+
+✗ 外层历史包含续写消息 → 污染 canonical history
+  ✓ 续写发生在局部 request_messages，成功后合并
+
+✗ 无限重试 → 成本失控
+  ✓ max_transient_attempts 和 total_timeout_seconds 双重保护
+
+
+核心流程伪代码
+---------------------------------
+RecoveryManager.complete(request):
+    state.current_max_tokens = 8000
+    state.current_model = primary
+    fragments = []
+
+    while True:
+        try:
+            reply = model.complete(request with state)
+
+            if reply.finish_reason == "length":
+                if not state.has_escalated:
+                    state.current_max_tokens = 64000  # 升级预算
+                    continue
+                else:
+                    fragments.append(reply.content)   # 续写
+                    request += (reply.message, user("Continue..."))
+                    continue
+
+            return merge_fragments(reply, fragments)
+
+        except ModelRateLimitError as e:
+            delay = parse_retry_after(e.retry_after) or backoff(attempt)
+            sleep(delay)
+            continue
+
+        except ModelOverloadedError:
+            state.consecutive_529 += 1
+            if state.consecutive_529 >= 3:
+                state.current_model = fallback  # 切换模型
+            sleep(backoff(attempt))
+            continue
+
+        except ModelPromptTooLongError:
+            leading_system, rest = split_messages(request)
+            compressed = compaction.compact(rest)
+            request = (leading_system, *compressed)
+            continue
+
+
+Java 对照速查
+---------------------------------
+RecoveryManager          = Hystrix / Resilience4j Service
+CancellationToken        = AtomicBoolean + List<Runnable>
+ModelRequestExecutor     = Strategy 接口
+RecoveryConfig           = record（不可变配置）
+RecoveryState            = POJO（可变状态）
+_map_api_status_error    = Adapter 映射方法
+指数退避                  = Exponential Backoff
+Jitter                   = 随机抖动（避免 Thundering Herd）

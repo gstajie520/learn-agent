@@ -1,3 +1,10 @@
+"""第三章集成测试：验证权限策略和审批流程的正确性。
+
+这是什么：测试 P03 引入的权限控制功能
+Java 类比：类似 Ch03PermissionIntegrationTest 测试类
+为什么需要：确保文件写入需要审批，且审批决策能正确阻止或放行工具调用
+"""
+
 from pathlib import Path
 
 from agent_ch08.adapters.filesystem import LocalWorkspaceFileSystem

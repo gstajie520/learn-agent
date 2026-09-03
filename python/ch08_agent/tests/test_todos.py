@@ -1,3 +1,10 @@
+"""TODO 模块的单元测试：验证任务管理和状态追踪逻辑。
+
+这是什么：测试 TODO 工具的创建、更新和容量限制
+Java 类比：类似 TodoManagerTest 单元测试类
+为什么需要：确保 Agent 能记录和追踪长期任务，且不会超出内存限制
+"""
+
 import json
 
 import pytest

@@ -1,3 +1,10 @@
+"""权限模块的单元测试：验证权限策略匹配和决策逻辑。
+
+这是什么：测试权限规则的评估和策略组合功能
+Java 类比：类似 PermissionPolicyTest 单元测试类
+为什么需要：确保权限规则能正确匹配工具调用，且多条规则按优先级生效
+"""
+
 import pytest
 
 from agent_ch08.core.messages import tool_call

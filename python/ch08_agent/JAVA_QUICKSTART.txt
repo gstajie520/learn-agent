@@ -1,0 +1,145 @@
+===============================================
+Java 开发者 3 步速通 Compaction（45 分钟）
+===============================================
+
+第 1 步：理解压缩动机（10 分钟）
+---------------------------------
+为什么需要上下文压缩？
+  问题：模型上下文窗口有限（如 128K tokens）
+  场景：长对话历史超出限制 → API 报错
+  影响：大工具结果占用过多 → 成本高、延迟大
+
+Java 类比：类似缓存管理，LRU 淘汰旧数据
+
+核心矛盾：
+  - 模型需要完整历史才能理解上下文
+  - 但完整历史会超出 token 限制
+  - 必须智能压缩，保留关键信息
+
+
+第 2 步：读核心实现（20 分钟）
+---------------------------------
+打开 features/compaction.py，按顺序阅读：
+  1. CompactionManager 类 → 压缩管理器（类似 Spring Service）
+  2. MessageGroup 概念 → 不可拆分的消息组
+  3. ArtifactStore 类 → 大结果归档器（类似 FileRepository）
+  4. ModelHistorySummarizer → 调用模型总结旧消息
+
+重点理解：
+  - RequestHistoryProcessor 接口 → 请求前处理
+  - ToolResultProcessor 接口 → 结果后处理
+  - Protocol = interface
+  - dataclass = record
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解压缩流程（5 个）
+[1] compaction.py:XXX  → CompactionManager.prepare() 方法开始
+    观察：history（原始历史）、当前字节数
+    目的：确认压缩前的消息数量和大小
+
+[2] compaction.py:XXX  → _group_messages() 分组逻辑
+    观察：如何将 assistant + tool_calls 配对成 MessageGroup
+    目的：理解为什么要按组处理
+
+[3] compaction.py:XXX  → _should_compact() 判断是否需要压缩
+    观察：total_bytes、threshold、recent_groups 数量
+    目的：理解响应式 vs 主动式压缩触发条件
+
+[4] compaction.py:XXX  → _summarize_old_groups() 总结旧消息
+    观察：要总结的消息组、生成的摘要
+    目的：看模型如何压缩旧消息
+
+[5] compaction.py:XXX  → compact_tool_results() 处理大结果
+    观察：result.content 大小、是否超过阈值
+    目的：理解大结果如何归档到磁盘
+
+一次完整运行的调用链：
+loop.py: prepare() → [1] → [2] → [3] → [4] → 返回压缩后历史
+loop.py: compact_tool_results() → [5] → 返回处理后结果
+
+
+【可选断点】深入理解（3 个）
+[6] compaction.py:XXX  → ArtifactStore.persist() 写入磁盘
+    观察：文件路径、内容大小
+    目的：理解大结果如何持久化
+
+[7] compaction.py:XXX  → _estimate_bytes() 估算字节数
+    观察：为什么用 UTF-8 编码计算
+    目的：理解字节数 vs 字符数的区别
+
+[8] loop.py:XXX  → 调用 history_processor.prepare()
+    观察：压缩前后的 messages 数量变化
+    目的：理解压缩如何集成到 Agent 循环
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 使用条件断点：如 total_bytes > 50000 只在需要压缩时停下
+- 观察 MessageGroup 结构，理解为什么不能拆分
+
+
+第 3 步：浏览集成文件（15 分钟）
+---------------------------------
+快速浏览三个文件，了解如何集成：
+  - core/loop.py     → AgentRunner 的两个处理器参数
+  - bootstrap.py     → P08 Profile 如何组装 CompactionManager
+  - core/profiles.py → P08 启用 "compaction" capability
+
+不要深入细节，知道压缩如何插入主循环即可。
+
+
+核心概念速记
+---------------------------------
+压缩动机 = 模型上下文有限 + 长对话超限 + 成本延迟问题
+
+MessageGroup = assistant + tool_calls 配对，不可拆分（API 协议要求）
+
+响应式压缩 = 超限后触发（reactive）
+主动式压缩 = 提前预防超限（proactive，更平滑）
+
+ArtifactStore = 大结果写磁盘，消息保留引用 ID，按需读取
+
+字节数 vs 字符数 = UTF-8 编码更准确（中文 1 字符 = 3 字节）
+
+两个接口 = RequestHistoryProcessor（请求前）+ ToolResultProcessor（结果后）
+
+
+学完你会掌握
+---------------------------------
+✓ 为什么需要上下文压缩
+✓ MessageGroup 为什么不可拆分
+✓ 响应式和主动式压缩的区别
+✓ 大结果归档机制
+✓ 如何集成到 Agent 循环
+✓ Python-Java 语法对照
+
+
+常见问题 FAQ
+---------------------------------
+Q: 压缩会丢失信息吗？
+A: 会。旧消息被总结成摘要，细节会丢失。但 system prompt 和最近消息完整保留。
+
+Q: 什么时候触发压缩？
+A: 响应式：超过阈值后触发；主动式：接近阈值时提前触发。
+
+Q: MessageGroup 为什么不能拆分？
+A: OpenAI API 协议要求每个 tool_call 必须有配对结果，拆分会 400 错误。
+
+Q: 大结果归档后如何读取？
+A: 消息保留 artifact:// 引用，模型需要时可以调工具读取。
+
+Q: 为什么用字节数不用字符数？
+A: 模型按 token 计费，中文字符占多字节，字节数更接近真实 token 数。
+
+Q: CompactionManager 实现了哪些接口？
+A: RequestHistoryProcessor（请求前处理历史）+ ToolResultProcessor（结果后处理）。
+
+Q: 压缩会影响模型效果吗？
+A: 会。旧消息被总结，模型看不到完整细节。但保留最近消息，影响有限。
+
+Q: 能否自定义压缩策略？
+A: 可以。实现 RequestHistoryProcessor 和 ToolResultProcessor 接口即可。

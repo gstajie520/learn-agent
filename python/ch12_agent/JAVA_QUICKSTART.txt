@@ -1,0 +1,139 @@
+===============================================
+Java Developer 3-Step Quick Guide to Task DAG (45 minutes)
+===============================================
+
+Step 1: Understand the Domain Model (10 minutes)
+---------------------------------
+Open features/tasks.py and understand the core entities:
+  - Task: Immutable record with id, subject, description, status, owner, blocked_by, timestamps
+  - TaskStore: Repository interface (create, list_all, get, claim, complete)
+  - Five tool definitions: create_task, list_tasks, claim_task, complete_task, get_task
+
+Java analogy: Read the domain model first like @Entity and Repository interface
+
+Key differences from TODO:
+  - TODO: Session-local step list, lost on process exit
+  - Task: Workspace-level project state, persisted to disk
+  - Task supports DAG dependencies (blocked_by), TODO is just a sequence
+
+
+Step 2: Understand the Persistence Mechanism (20 minutes)
+---------------------------------
+Open adapters/task_json.py and read in order:
+  1. JsonTaskStore.__init__     -> File path and lock initialization
+  2. JsonTaskStore.create        -> Create task with DAG validation
+  3. JsonTaskStore._validate_graph -> Check for missing edges, self-deps, cycles
+  4. JsonTaskStore._detect_cycles  -> DFS-based cycle detection
+  5. JsonTaskStore._atomic_write   -> write temp + rename pattern
+
+Key concepts:
+  - File lock: fcntl.flock (POSIX) or msvcrt.locking (Windows)
+  - Atomic write: tmp file + rename (filesystem atomic operation)
+  - DAG validation: Detect cycles, missing dependencies, self-dependencies
+  - State machine: pending -> in_progress (claim) -> completed (complete)
+
+
+Debugging Breakpoint Cheatsheet (VSCode/PyCharm)
+---------------------------------
+If you want to step through the execution, set these breakpoints in priority order:
+
+[MUST-HAVE BREAKPOINTS] Understand Main Flow (5 breakpoints)
+
+[1] tasks.py:XXX  -> register_task_tools() function start
+    Watch: registry, store
+    Goal: Confirm tool registration
+
+[2] tasks.py:XXX  -> Inside _create_task_definition handler
+    Watch: arguments (subject, description, blocked_by), context.workspace
+    Goal: Check input parameters for create_task
+
+[3] task_json.py:XXX  -> JsonTaskStore.create() method start
+    Watch: subject, description, blocked_by, owner
+    Goal: Confirm task creation parameters
+
+[4] task_json.py:XXX  -> _validate_graph() before validation
+    Watch: tasks dict, current task being validated
+    Goal: Understand DAG validation logic
+
+[5] task_json.py:XXX  -> _detect_cycles() DFS entry point
+    Watch: task_id, visited set, recursion_stack
+    Goal: See how cycle detection works
+
+Typical execution chain:
+[1] -> [2] -> [3] -> [4] -> [5] (if dependencies exist)
+Result: Task JSON written to disk atomically
+
+
+[OPTIONAL BREAKPOINTS] Deep Dive (3 breakpoints)
+
+[6] task_json.py:XXX  -> _atomic_write() before temp file write
+    Watch: file_path, temp_path, serialized JSON
+    Goal: Understand atomic write mechanism
+
+[7] tasks.py:XXX  -> claim_task handler
+    Watch: task_id, owner, current task status
+    Goal: See state transition from pending to in_progress
+
+[8] tasks.py:XXX  -> complete_task handler
+    Watch: task_id, completion check (all dependencies done)
+    Goal: Understand completion validation
+
+
+Debugging Tips:
+- First run: Only set the 5 must-have breakpoints, walk through once
+- After understanding main flow, add optional breakpoints for details
+- Use conditional breakpoints: task_id == "specific-uuid"
+
+
+Step 3: Browse Supporting Files (15 minutes)
+---------------------------------
+Quickly skim three files to understand integrations:
+  - tests/test_tasks.py       -> Unit tests for Task domain logic
+  - tests/test_ch12_integration.py -> End-to-end integration test
+  - features/skills.py         -> Chapter 7: Skill on-demand loading
+  - features/subagents.py      -> Chapter 6: Subagent isolation
+
+Don't dive into details, just know what exists.
+
+
+Core Concepts Quick Reference
+---------------------------------
+Task DAG = Directed Acyclic Graph of workspace tasks with dependency tracking
+
+State Machine = pending -> (claim) -> in_progress -> (complete) -> completed
+
+Atomic Write = write to tmp file + rename (filesystem atomic op) -> prevents corruption
+
+File Lock = Process-level lock (fcntl/msvcrt) -> serializes concurrent access
+
+Cycle Detection = DFS with visited set + recursion stack -> prevents deadlock
+
+Repository Pattern = TaskStore interface + JsonTaskStore impl -> swappable storage
+
+
+Why These Design Choices?
+---------------------------------
+Q: Why not directly modify JSON without file lock?
+A: Concurrent writes would corrupt the file (race condition)
+
+Q: Why use tmp + rename instead of direct write?
+A: Direct write is not atomic; crash mid-write leaves invalid JSON
+
+Q: Why check for cycles on every create/complete?
+A: Prevents A depends on B, B depends on A -> deadlock
+
+Q: Why must Task go through claim before complete?
+A: Ownership tracking (who is working on this) prevents duplicate work
+
+Q: Why TaskStore interface instead of direct JsonTaskStore?
+A: Dependency Inversion Principle -> can swap to SQLite/Redis later
+
+
+What You'll Master
+---------------------------------
+[x] Task DAG domain model and state machine
+[x] Repository pattern with interface + implementation
+[x] File-based concurrency control (lock + atomic write)
+[x] Graph algorithms (cycle detection via DFS)
+[x] Five-tool command pattern registration
+[x] Python-Java syntax mapping for enterprise patterns

@@ -1,0 +1,105 @@
+===============================================
+Java 开发者 3 步速通 Agent Loop（45 分钟）
+===============================================
+
+第 1 步：从测试看目标（10 分钟）
+---------------------------------
+打开 tests/test_loop.py，理解 Agent 的输入输出：
+  输入：用户问题字符串
+  输出：RunResult(最终答案, 消息历史, 轮数)
+
+Java 类比：先读 AgentServiceTest 理解业务需求
+
+
+第 2 步：读核心循环（20 分钟）
+---------------------------------
+打开 core/loop.py，按顺序阅读：
+  1. AgentRunner.__init__  → 依赖注入（类似 Spring @Autowired）
+  2. AgentRunner.run       → 主循环逻辑（模型-工具循环）
+  3. 异常定义              → 业务异常类型
+
+重点理解：
+  - Protocol = interface
+  - dataclass(frozen=True) = 不可变 record
+  - tuple = List.copyOf()
+  - for...in = 增强 for 循环
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] loop.py:128  → AgentRunner.run() 方法开始
+    观察：query（用户问题）、system_prompt、max_turns
+    目的：确认输入参数是否正确
+
+[2] loop.py:145  → 即将调用模型前（ModelRequest 构建完成）
+    观察：messages 列表内容、当前轮数 turn
+    目的：检查发给模型的消息是否符合预期
+
+[3] loop.py:162  → 拿到模型回复后
+    观察：reply.finish_reason（"stop" 还是有 tool_calls）、reply.content
+    目的：判断模型是要返回文本还是调用工具
+
+[4] loop.py:178  → 准备执行工具前（已通过 prepare 校验）
+    观察：prepared.tool_name、prepared.arguments、是否通过授权
+    目的：确认要执行哪个工具、参数是什么
+
+[5] loop.py:195  → 工具执行完毕、结果回填前
+    观察：result.success、result.output
+    目的：检查工具执行是否成功、返回值是什么
+
+一次完整运行的调用链：
+[1] → [2] → [3] → [4] → [5] → [2] → [3] → ...
+直到 [3] 处 finish_reason == "stop" 退出循环
+
+
+【可选断点】深入理解（3 个）
+[6] tools.py:XXX  → ToolRegistry.prepare() 参数校验
+    观察：JSON 解析、Schema 校验
+    目的：理解工具参数如何被校验
+
+[7] messages.py:XXX  → validate_tool_pairing() 配对检查
+    观察：tool_calls 和 tool 结果是否一一对应
+    目的：理解为什么配对错误会导致 API 拒绝
+
+[8] loop.py:XXX  → 授权检查逻辑（如果有 authorizer）
+    观察：authorization.allowed、authorization.reason
+    目的：理解权限拒绝如何阻止工具执行
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 turn == 3 只在第 3 轮停下
+
+
+第 3 步：浏览支撑文件（15 分钟）
+---------------------------------
+快速浏览三个文件，了解数据结构：
+  - core/messages.py  → 消息 DTO（SystemMessage/UserMessage/AssistantMessage/ToolMessage）
+  - core/tools.py     → 工具接口（ToolRegistry/ToolDefinition/ToolResult）
+  - core/model.py     → 模型接口（ModelClient/ModelRequest/ModelReply）
+
+不要深入细节，知道有什么就行。
+
+
+核心概念速记
+---------------------------------
+Agent 循环 = while (未达上限) { 调用模型 → 有文本就返回 → 有工具就执行 → 继续 }
+
+授权器 fail-closed 原则 = 授权系统故障时默认拒绝（安全优先）
+
+消息配对契约 = 每个 assistant.tool_calls[i] 必须有对应的 tool 结果
+
+为什么要 max_turns = 防止模型无限调用工具（成本和性能保护）
+
+
+学完你会掌握
+---------------------------------
+✓ Agent 循环的编排逻辑
+✓ 依赖注入 + 接口隔离原则
+✓ 不可变数据结构的使用
+✓ 工具授权机制的设计
+✓ Python-Java 语法对照

@@ -1,0 +1,279 @@
+===============================================
+Java 开发者 4 步速通持久队友与 Mailbox（55 分钟）
+===============================================
+
+第 1 步：理解 Mailbox 领域模型（10 分钟）
+---------------------------------
+打开 agent_ch15/features/mailbox.py，理解消息字段和状态机：
+  MailboxMessage 的 6 个字段：
+    - id: 全局唯一消息主键，也是事件去重 ID
+    - sender: 发送方 Agent 身份（例如 lead、alice）
+    - recipient: 接收方 Agent 身份，同时决定邮箱目录
+    - kind: task、message 或 result
+    - content: 原始正文
+    - created_at_utc: 带 UTC 时区的创建时间
+
+  message.id 的三重身份：
+    - 消息主键（全局唯一）
+    - 事件去重 ID（_seen_event_ids）
+    - 工具幂等键（ToolContext.idempotency_key）
+
+  四态状态机：
+    ready → processing → done
+                      ↘ quarantine
+
+Java 类比：先读 MailboxMessage record 和 MailboxRepository 接口
+
+
+第 2 步：掌握原子持久化机制（15 分钟）
+---------------------------------
+打开 agent_ch15/adapters/mailbox_json.py，理解原子操作：
+
+  1. _atomic_write()  → 临时文件 + fsync + atomic rename
+  2. _move()          → 原子状态迁移（目录名即状态）
+  3. send()           → 原子写入 ready 目录
+  4. claim()          → 原子迁移 ready → processing（获取租约）
+  5. ack()            → 原子迁移 processing → done（释放租约）
+  6. release()        → 原子迁移 processing → ready（重试）
+  7. quarantine()     → 原子迁移 processing → quarantine（隔离）
+  8. recover_processing() → 启动时恢复遗留租约
+
+目录结构：
+  .agent_tutorial/mailboxes/
+    {recipient}/
+      ready/*.json        # 等待被消费
+      processing/*.json   # 正在处理（租约）
+      done/*.json         # 已完成
+      quarantine/*.json   # 隔离坏消息
+
+重点理解：
+  - 目录名即状态：状态迁移 = 文件 rename
+  - processing 状态即租约：只有租约持有者可迁移
+  - 全工作区锁：防止并发写入冲突
+
+Java 对照：
+  - _atomic_write = Files.move(ATOMIC_MOVE)
+  - _move = UPDATE WHERE state='processing' AND id=?
+  - recover_processing = @EventListener(ContextRefreshedEvent)
+
+
+第 3 步：掌握队友生命周期（15 分钟）
+---------------------------------
+打开 agent_ch15/features/teammates.py，理解 Worker 模式：
+
+  TeammateRuntime 核心方法：
+    spawn(name, role, prompt, *, sender)  → 注册队友 + 启动 worker
+    send(to, content, *, sender)          → 发消息 + 唤醒 idle 队友
+    state(name)                           → 查询队友状态
+    _run_worker(worker)                   → 工作循环
+    _publish_lead()                       → Lead 消息发布到 EventInbox
+
+  _Worker 内部状态：
+    teammate: Teammate        # 不可变快照（name, role, status）
+    runner: AgentRunner       # 独立 Runner，整个生命周期复用
+    thread: Thread | None     # 可复用线程
+    current: Message | None   # 当前处理消息
+
+  生命周期：
+    spawn → running → idle → running (复用) → failed/shutdown
+
+  工作循环：
+    while True:
+      message = store.claim(recipient)
+      result = runner.run(message.content)
+      store.send(recipient="lead", content=result, sender=self.name)
+      store.ack(message)
+
+  复用机制：
+    - idle 队友保留 Runner 和历史
+    - 收到消息时状态改为 running，启动新线程
+    - 新线程复用原 Runner，历史自然延续
+
+Java 对照：
+  - TeammateRuntime = ExecutorService + 队友注册表
+  - _Worker = Callable<Void> 或 Runnable
+  - _run_worker = @Scheduled 或 Quartz Job
+
+
+第 4 步：理解事件回合与 ack-after-processing（15 分钟）
+---------------------------------
+打开 agent_ch15/core/loop.py，重点阅读 run_events() 方法：
+
+  ack-after-processing 流程：
+    1. 优先处理 _pending_event_acks（补确认）
+       if self._pending_event_acks:
+           event, result = next(iter(self._pending_event_acks.values()))
+           self._event_pump.acknowledge_events((event,))
+           self._pending_event_acks.pop(event.event_id, None)
+           return result
+
+    2. 取下一条事件（deferred 或 drain）
+       next_event = self._deferred_runtime_events.pop(0) if ... else None
+       if next_event is None:
+           drained = self._event_pump.drain_events(1)
+           next_event = drained[0] if drained else None
+
+    3. 执行事件回合
+       try:
+           result = asyncio.run(self._run(...))
+           try:
+               self._event_pump.acknowledge_events((event,))
+           except Exception:
+               # ack 失败：保留租约，只记录未完成的 ack
+               self._pending_event_acks[event.event_id] = (event, result)
+               raise
+           return result
+       except Exception:
+           # 模型失败：释放租约
+           if event.event_id not in self._pending_event_acks:
+               self._event_pump.release_events((event,))
+           raise
+
+  为什么事件回合完成后才 ack：
+    - at-least-once 语义：claim 后立即 ack 会丢失消息
+    - 可重试性：ack 前失败时消息仍在 processing
+    - 补确认机制：ack 失败但历史已写入，保存到 pending
+    - 租约保护：模型执行期间租约一直持有
+
+Java 对照：
+  - _pending_event_acks = RabbitMQ 的 manual ack + prefetch
+  - ack-after-processing = Kafka 的 enable.auto.commit=false
+  - release = RabbitMQ channel.basicNack(deliveryTag, false, true)
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] mailbox_json.py:XX  → FileMailboxStore.send() 开始
+    观察：sender, recipient, content, kind
+    目的：确认消息字段是否正确
+
+[2] mailbox_json.py:XX  → FileMailboxStore.claim() 开始
+    观察：recipient, ready 目录内容
+    目的：查看哪些消息等待被消费
+
+[3] teammates.py:XX  → _run_worker() 工作循环开始
+    观察：worker.teammate.name, worker.teammate.status
+    目的：确认队友身份和当前状态
+
+[4] loop.py:XX  → run_events() 方法开始
+    观察：_pending_event_acks, _deferred_runtime_events
+    目的：查看是否有待补确认的事件
+
+[5] mailbox_json.py:XX  → FileMailboxStore.ack() 开始
+    观察：message.id, processing 目录内容
+    目的：确认租约是否被正确释放
+
+一次完整运行的调用链：
+[1] send → [2] claim → [3] _run_worker → [4] run_events → [5] ack
+
+【可选断点】深入理解（3 个）
+[6] mailbox_json.py:XX  → _atomic_write() 临时文件创建
+    观察：临时文件路径、fsync 调用
+    目的：理解原子写入的三段式
+
+[7] mailbox_json.py:XX  → _move() 状态迁移
+    观察：source 路径、target 路径
+    目的：理解目录名即状态的设计
+
+[8] teammates.py:XX  → send() 唤醒 idle 队友
+    观察：worker.teammate.status 从 idle 改为 running
+    目的：理解队友复用机制
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完一次完整流程
+- 理解主流程后再打可选断点深入细节
+- 使用条件断点：如 message.id == "..." 只在特定消息时停下
+
+
+核心概念速记
+---------------------------------
+四态状态机 = ready（待处理）→ processing（租约）→ done（完成）/ quarantine（隔离）
+
+message.id 三重身份 = 消息主键 + 事件去重 ID + 工具幂等键
+
+ack-after-processing = 模型处理完成后才 ack，ack 失败保留租约只补确认
+
+队友复用 = idle 状态保留 Runner 和历史，收到消息时唤醒
+
+sender 来源保护 = 只能来自 ToolContext.identity，防止模型伪造身份
+
+租约机制 = processing 状态即租约，只有持有者可 ack/release/quarantine
+
+故障恢复 = recover_processing 把遗留租约退回 ready，_pending_event_acks 补确认
+
+
+Ch15 与 Ch14 的主要差异
+---------------------------------
+| 维度 | Ch14 (Cron 事件) | Ch15 (持久队友) |
+|------|------------------|-----------------|
+| 核心能力 | 定时触发独立回合 | 多 Agent 可靠通信 |
+| 新增边界 | CronJob/CronStore/CronRuntime | MailboxMessage/MailboxStore/TeammateRuntime |
+| 事件来源 | schedule_cron 工具 | spawn_teammate/send_message 工具 |
+| 持久化 | state.json (job + outbox) | 四态目录 (ready/processing/done/quarantine) |
+| 身份模型 | 计划创建者身份 | 每个队友独立身份 + 独立历史 |
+| 失败恢复 | durable outbox 保留未确认事件 | recover_processing 恢复租约 + quarantine 隔离 |
+
+
+学完你会掌握
+---------------------------------
+✓ Mailbox 四态状态机的流转规则
+✓ 原子状态迁移（通过文件系统 rename）
+✓ 租约机制（processing 状态防止重复消费）
+✓ 队友生命周期管理（spawn → running → idle → running）
+✓ ack-after-processing 原则（模型完成后才 ack）
+✓ sender 来源保护（ToolContext.identity）
+✓ 故障恢复策略（recover_processing + _pending_event_acks）
+
+
+面试题速查
+---------------------------------
+Q1: 为什么 message.id 同时充当事件 ID 和幂等键？
+A: - 事件去重：_seen_event_ids 使用 message.id 防止重复注入历史
+   - 工具幂等：ToolContext.idempotency_key = message.id 让工具副作用去重
+   - 统一身份：一个消息在整个系统中只有一个稳定标识
+   - 租约关联：processing 文件名就是消息 ID，ack/release/quarantine 通过 ID 找到租约文件
+
+Q2: FileMailboxStore 如何通过 rename 实现原子状态迁移？
+A: - 目录名即状态：ready/processing/done/quarantine 四个目录分别代表四个状态
+   - rename 原子性：POSIX/Windows 文件系统保证同目录下 rename 是原子操作
+   - 条件更新：_move 先检查目标不存在，再 rename，相当于 UPDATE WHERE state='processing' AND id=?
+   - 租约机制：只有 processing 目录的文件可以被 ack/release/quarantine
+
+Q3: 为什么事件回合完成后才 ack？
+A: - at-least-once 语义：如果 claim 后立即 ack，模型执行失败会丢失消息
+   - 可重试性：ack 前失败时，消息仍在 processing 状态，recover_processing 可以恢复
+   - 补确认机制：ack 失败时历史已写入，保存到 _pending_event_acks，下次只补确认不重复调用模型
+   - 租约保护：模型执行期间租约一直持有，防止其他消费者重复处理
+
+Q4: TeammateRuntime 如何复用 idle 队友的 Runner？
+A: - 状态转换：队友完成任务后状态变为 idle，线程退出但 Runner 保留
+   - 唤醒机制：send() 检测到 idle 状态时，将状态改回 running 并重新 _start_worker()
+   - 历史保留：_Worker.runner 的 _history 字段在整个生命周期内不清空
+   - 线程复用：新线程复用同一个 Runner 实例，历史自然延续
+
+Q5: 为什么 sender 只能来自 ToolContext.identity？
+A: - 安全边界：防止模型伪造发送者身份（例如冒充 Lead 给队友发指令）
+   - 审计追踪：sender 由可信运行时提供，保证每条消息的真实来源
+   - 身份传播：Lead 回合的 identity 是 "lead"，队友回合的 identity 是队友名
+   - 攻击场景：如果允许模型传递 sender，恶意 prompt 可以让队友 A 冒充队友 B 发消息
+
+Q6: recover_processing 在什么时机调用？
+A: - 调用时机：TeammateRuntime.start() 和 spawn() 时，分别恢复 Lead 和队友的遗留租约
+   - 故障场景：进程在 claim 后、ack 前崩溃，消息留在 processing 状态
+   - 租约语义：processing 状态即"某消费者正在处理"，但进程重启后原消费者已不存在
+   - 恢复策略：把所有 processing 消息退回 ready，让新进程或其他消费者重新处理
+
+Q7: quarantine 目录的作用是什么？
+A: - 隔离坏消息：JSON 损坏、字段缺失、模型不可重试错误
+   - 保留审计：隔离而不是删除，方便事后排查
+   - 不阻塞队列：坏消息不会一直卡在 ready 或 processing，让其他消息继续处理
+   - 触发场景：_valid_entries 自动隔离、_run_worker 主动隔离、冲突检测隔离
+
+Q8: _pending_event_acks 如何解决 ack 失败问题？
+A: - 问题场景：模型回合已完成并写入 history，但 acknowledge_events() 抛异常
+   - 租约状态：消息仍在 processing 状态（因为 ack 失败）
+   - 重复风险：如果直接 release，下次 run_events 会重新调用模型，历史重复
+   - 解决方案：保存 (event, result) 到 _pending_event_acks，下次优先处理，只补 ack 不重复调用模型

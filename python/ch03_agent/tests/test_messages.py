@@ -1,4 +1,11 @@
-﻿from agent_ch03.core.messages import (
+﻿"""消息领域模型测试。
+
+这是什么：测试工具调用配对契约、消息构造函数、ID 唯一性检查。
+Java 类比：类似 MessageDTOTest，验证领域对象的不变式和校验逻辑。
+为什么需要：消息配对错误会导致 API 拒绝请求，必须在发送前捕获。
+"""
+
+from agent_ch03.core.messages import (
     MessageContractError,
     assistant_message,
     tool_call,

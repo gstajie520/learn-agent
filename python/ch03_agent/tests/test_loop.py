@@ -1,4 +1,11 @@
-﻿from dataclasses import dataclass
+﻿"""Agent 核心循环测试。
+
+这是什么：测试 AgentRunner.run() 的工具调用循环、max_turns 限制、配对检查。
+Java 类比：类似 AgentServiceTest，使用 Fake 依赖验证循环逻辑。
+为什么需要：循环是 Agent 核心，必须保证工具调用配对、停止条件、异常处理正确。
+"""
+
+from dataclasses import dataclass
 
 from agent_ch03.bootstrap import build_agent
 from agent_ch03.core.commands import CommandResult

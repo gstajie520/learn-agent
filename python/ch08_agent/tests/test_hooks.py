@@ -1,3 +1,10 @@
+"""Hook 机制的单元测试：验证生命周期事件和消息注入逻辑。
+
+这是什么：测试 Hook 注册、执行和合约校验功能
+Java 类比：类似 HookRegistryTest 单元测试类
+为什么需要：确保 Hook 能在正确时机触发，且返回值符合接口约定
+"""
+
 import asyncio
 from dataclasses import replace
 

@@ -1,3 +1,10 @@
+"""第六章集成测试：验证子 Agent 的创建、执行和结果返回流程。
+
+这是什么：测试 P06 引入的子 Agent 委派功能
+Java 类比：类似 Ch06SubagentIntegrationTest 测试类
+为什么需要：确保主 Agent 能创建子 Agent 处理子任务，并正确汇总结果
+"""
+
 from pathlib import Path
 
 from agent_ch08.bootstrap import build_agent

@@ -1,0 +1,160 @@
+===============================================
+Java 开发者 3 步速通 Git Worktree 隔离（45 分钟）
+===============================================
+
+第 1 步：从测试看目标（10 分钟）
+---------------------------------
+打开 tests/test_ch18_worktrees.py，理解 Worktree 的三个核心场景：
+  场景1：创建 Worktree → claim 任务 → 路由到独立目录
+  场景2：失效 token 不能回退到主目录（安全边界）
+  场景3：删除前必须完成任务（前置条件）
+
+Java 类比：先读 WorktreeServiceTest 理解业务需求
+
+
+第 2 步：读领域模型和核心服务（20 分钟）
+---------------------------------
+打开 features/worktrees.py，按顺序阅读：
+  1. WorktreeBinding        → 不可变状态快照（类似 record）
+  2. WorktreeRuntime.__init__ → 依赖注入（类似 Spring）
+  3. create_worktree        → 两阶段提交（reserve → active）
+  4. resolve                → claim token 路由到可信 cwd
+  5. remove_worktree        → 多重安全检查
+
+重点理解：
+  - WorktreeBinding = 不可变 record
+  - WorktreeStore = Repository interface
+  - status 五态 = 状态机枚举
+  - resolve = 请求拦截器（每次工具调用前执行）
+
+
+调试断点速查（VSCode/PyCharm 适用）
+---------------------------------
+如果你想单步调试理解流程，按优先级打以下断点：
+
+【必打断点】理解主流程（5 个）
+[1] worktrees.py:约350行 → create_worktree() 方法开始
+    观察：task_id、name、integration_ref
+    目的：确认输入参数是否正确
+
+[2] worktrees.py:约370行 → _transition_worktree("reserve") 调用前
+    观察：binding 预留状态，status == "reserved"
+    目的：理解两阶段提交的第一阶段
+
+[3] worktrees.py:约390行 → Git worktree add 执行后
+    观察：result.returncode、stderr 内容
+    目的：检查 Git 命令是否成功
+
+[4] worktrees.py:约410行 → _transition_worktree("create") 迁移到 active
+    观察：binding.status 从 reserved → active
+    目的：理解状态机转换
+
+[5] worktrees.py:约500行 → resolve() 方法内查询绑定
+    观察：claim.task_id、绑定的 relative_path
+    目的：理解 claim token 如何路由到 Worktree 目录
+
+一次完整运行的调用链（创建+认领+路由）：
+[1] → [2] → [3] → [4] → ... → claim_next() → [5]
+
+
+【必打断点】理解删除安全（3 个）
+[6] worktrees.py:约600行 → remove_worktree() 方法开始
+    观察：task_id、当前 binding.status
+    目的：确认删除的前置状态
+
+[7] worktrees.py:约650行 → 检查任务是否 completed
+    观察：task.status、task.completion
+    目的：理解为什么未完成任务不能删除
+
+[8] worktrees.py:约700行 → 多重 Git 检查（status --porcelain、merge-base）
+    观察：每个检查的返回值
+    目的：理解删除前的安全证明链
+
+删除失败的回退点：
+任何检查失败 → _transition_worktree("needs_review")
+→ 保留现场供人工审查
+
+
+调试技巧：
+- 首次调试只打前 5 个必打断点，走完创建+路由流程
+- 理解主流程后再打删除相关断点
+- 使用条件断点：如 name == "alice" 只在特定任务停下
+
+
+第 3 步：浏览持久化和循环集成（15 分钟）
+---------------------------------
+快速浏览两个集成点：
+  - adapters/task_sqlite.py  → _transition_worktree（状态迁移+审计原子性）
+  - core/loop.py             → _resolve_tool_context（工具调用前解析 cwd）
+
+不要深入细节，理解两个核心点就行：
+  1. 状态变更和审计事件在同一 SQLite 事务
+  2. 每次工具执行前都重新验证 claim token
+
+
+核心概念速记
+---------------------------------
+Worktree 隔离 = 每个任务独立目录 + 独立分支 → 并发不覆盖
+
+两阶段提交 = reserve 预留名称 → Git 成功后 active
+
+claim token 路由 = token → task_id → WorktreeBinding → 可信 cwd
+
+Fail-Safe 删除 = 先证明安全（任务完成+Git干净+已合并）→ 任何失败转 needs_review
+
+状态机五态 = reserved → active → kept/needs_review/removed
+
+路径安全规则 = branch 固定 wt/{name}，路径固定 .agent_tutorial/worktrees/{name}
+
+
+学完你会掌握
+---------------------------------
+✓ 为什么需要 Worktree 隔离（文件锁不能并发）
+✓ 两阶段提交的实现（reserve → active）
+✓ claim token 如何路由到独立目录
+✓ 删除前的多重安全检查
+✓ 状态机设计和转换规则
+✓ 事务原子性保证（状态+审计）
+✓ 固定路径规则防止注入攻击
+
+
+核心文件速查
+---------------------------------
+features/worktrees.py          → 领域模型和核心服务（400+ 行）
+adapters/task_sqlite.py        → 持久化层（状态迁移、审计事件）
+adapters/git.py                → Git 适配器（只封装 subprocess）
+core/loop.py                   → 循环集成（_resolve_tool_context）
+tests/test_ch18_worktrees.py   → 集成测试（创建、路由、删除）
+
+
+常见陷阱和误区
+---------------------------------
+❌ 误区1：以为 branch 和 path 可以自由命名
+   ✓ 真相：固定规则防止注入，模型不能传任意值
+
+❌ 误区2：以为删除失败应该直接报错
+   ✓ 真相：转 needs_review 保留现场，保护用户数据优先
+
+❌ 误区3：以为 resolve 只需调用一次
+   ✓ 真相：每次工具调用前都要重新验证 token 有效性
+
+❌ 误区4：以为 Git stderr 应该返回给模型
+   ✓ 真相：stderr 不稳定，领域层返回稳定中文错误
+
+
+Java 开发者常问问题
+---------------------------------
+Q: WorktreeBinding 为什么是不可变的？
+A: 类似 record，状态变更由 Repository 生成新快照，确保审计追踪
+
+Q: 为什么不用 ORM 而用原生 SQL？
+A: 事务边界明确，状态迁移+审计事件原子性由 SQL 事务保证
+
+Q: 状态机转换如何防止非法跳转？
+A: _transition_worktree 检查 action 合法性，类似状态模式
+
+Q: 如何防止并发修改冲突？
+A: SQLite 事务隔离 + WHERE status = ? 条件更新
+
+Q: 为什么 Git 操作不在 Repository 层？
+A: Git 是基础设施，通过 GitRunner 接口注入，便于测试替换

@@ -1,3 +1,10 @@
+"""第四章集成测试：验证 Hook 机制的生命周期和消息注入能力。
+
+这是什么：测试 P04 引入的 Hook 拦截和增强功能
+Java 类比：类似 Ch04HookIntegrationTest 测试类
+为什么需要：确保 Hook 能在关键点拦截并修改流程，支持日志、监控等横切关注点
+"""
+
 from dataclasses import replace
 from pathlib import Path
 
