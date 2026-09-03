@@ -28,7 +28,7 @@
 | 6 | Structured Output 与 Tool Calling | ch02 | DONE | `06-structured-output` 52 个测试（两层校验、只出预览）+ `07-tool-calling` 17 个测试（`prepare`/`invoke` 分离、破坏性工具人工确认、TOOL 角色结果回传） |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | DONE | `08-agent-loop`：`run` 返回 `AgentTrace` 而非字符串、工具超时、重复调用幂等、每轮 trace；15 个测试 |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | DONE | `09-agent-guardrails`：权限四态归约 36 个测试 + Hook 四事件与三道锁 33 个测试，共 69 个 |
-| 9 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | IN_PROGRESS | 前 4 课已完成：`10-context-engineering` 的 `plan`/`skill`/`workspace`/`artifact`/`compaction` 五个包，115 个离线测试（前 3 课 81 个 + 第 4 课 artifact/compaction/utils 共 34 个）；余两课待做 |
+| 9 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | IN_PROGRESS | 前 5 课已完成：`10-context-engineering` 的 `plan`/`skill`/`workspace`/`artifact`/`compaction`/`memory` 六个包，148 个离线测试（前 3 课 81 个 + 第 4 课 34 个 + 第 5 课 33 个）；余一课待做 |
 | 10 | RAG 与向量检索 | —（自写 lesson） | NOT_STARTED |  |
 | 11 | API 韧性与任务系统 | ch11–ch14 | NOT_STARTED |  |
 | 12 | LangGraph 状态与工作流 | — | NOT_STARTED |  |
@@ -43,7 +43,7 @@
 
 | 贯穿项 | 起始阶段 | 状态 | 当前位置 |
 |---|---|---|---|
-| 最小评估集 | 6 | **完成** | 已建 `99-minimal-eval` 模块的 `learn.agent.eval.MinimalEvaluationSetTest`：跨阶段 6/7/8/9 的回归基线共 29 行，改完 `mvn -o test` 即跑 |
+| 最小评估集 | 6 | **完成** | 已建 `99-minimal-eval` 模块的 `learn.agent.eval.MinimalEvaluationSetTest`：跨阶段 6/7/8/9 的回归基线共 36 行（阶段 9 第 5 课新增 4 行记忆验证），改完 `mvn -o test` 即跑 |
 | Trace 与结构化日志 | 7 | **完成** | 已建 `AgentTrace`/`RoundTrace`：trace id + 每轮工具名、`tool_call_id`、结局、耗时、token；`toLogLine()` 输出 `key=value` 可 grep |
 | 每章面试题 | 1 | IN_PROGRESS | 阶段 4 五课、阶段 5 至 8 各课的文档均已含「常见面试题」 |
 
@@ -56,7 +56,7 @@
 - 阶段状态：IN_PROGRESS（6 课中前 3 课已完成）
 - 主教材：`code/chapters/ch05`、`ch06`、`ch07`、`ch08`、`ch09`、`ch10`
 - 阶段 5 至 8 的模块与文档路径见下方「已完成内容」，每个模块自带 README 导航
-- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 738 个测试通过，6 跳过为缺 `REDIS_PASSWORD` 的真实 Redis，2 个真实模型调用因本机 PKIX 证书问题排除）
+- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 181 个测试通过：79+52+17+15+82+148，0 跳过为已排除真实网络调用）
 - 本阶段六课进度与后续计划：
 
 | 课次 | 主题 | 教材 | 状态 | 开工前要先解决的事 |
@@ -65,11 +65,11 @@
 | 2 | 子 Agent | ch06 | **已完成** | — |
 | 3 | Skill 按需加载 | ch07 | **已完成** | 顺带建了 `WorkspaceGuard` 文件边界层，第 4、5 课复用 |
 | 4 | 产物落盘与上下文压缩 | ch08、ch09 | **已完成** | — |
-| 5 | 文件记忆 | ch09 | 下一个 | 文件层已就绪。`manifest.json` + `MEMORY.md` + 文件锁可以照教材做了 |
-| 6 | 动态 Prompt 组装 | ch10 | 待做 | 依赖第 3 课的 `SkillRegistry`（教材 `prompting.ts` 直接 import 它），所以第 3 课必须在它之前 |
+| 5 | 文件记忆 | ch09 | **已完成** | 文件层已就绪。`manifest.json` + `MEMORY.md` + 记忆选择/提取/整理 |
+| 6 | 动态 Prompt 组装 | ch10 | 下一个 | 依赖第 3 课的 `SkillRegistry`（教材 `prompting.ts` 直接 import 它），所以第 3 课必须在它之前 |
 
-- **第 5、6 课的阻塞已解除**：那个「补文件层还是降级纯内存」的二选一，在第 3 课选了前者并已落地（`learn.agent.llm.workspace.WorkspaceGuard`，词法关 + 物理关，14 个测试）。这两课现在可以照教材做，不必降级
-- 本阶段的贯穿项动作：每课往 `99-minimal-eval` 加 3-5 行；第 4 课已加入压缩与配对验证，trace 里能看出「哪些结果被压缩过」
+- **第 5、6 课的阻塞已解除**：那个「补文件层还是降级纯内存」的二选一，在第 3 课选了前者并已落地（`learn.agent.llm.workspace.WorkspaceGuard`，词法关 + 物理关，14 个测试）。第 5 课已完成（`MemoryStore` + `MemorySession`，33 个测试），第 6 课现在可以照教材做，不必降级
+- 本阶段的贯穿项动作：每课往 `99-minimal-eval` 加 3-5 行；第 4 课已加入压缩与配对验证，第 5 课加入记忆选择验证，trace 里能看出「哪些结果被压缩过、哪些记忆被选中」
 
 ## 已完成内容
 
@@ -115,6 +115,7 @@
 - 幂等键故意不含 `tool_call_id`（每次都不同，算进去永不命中）；失败结果不缓存，避免一次偶发超时在整个会话里变成永久失败
 - 第五课 15 个测试全绿（`AgentLoopTest` 10 + `ToolCallMemoTest` 5）；`TraceIdGenerator` 接口让 trace id 在测试里可固定
 - 已完成阶段 9 前 4 课：`10-context-engineering` 的会话计划（35 测试）、子 Agent（13 测试）、Skill 按需加载 + 文件边界层（28 测试）、产物落盘与上下文压缩（34 测试），模块累计 115 个离线测试。第 3 课顺带建的 `WorkspaceGuard` 为后三课（产物落盘、文件记忆、动态 Prompt）准备文件系统边界；第 4 课实现了 `ArtifactManager`（大工具结果落盘）、`CompactionUtils`（snip/micro 压缩）和 `ContextCompactor`（三层压缩统一入口）
+- 已完成阶段 9 第 5 课：`10-context-engineering` 的 `memory` 包（33 测试）。实现 `MemoryRecord`（不可变值对象）、`MemoryStore`（manifest.json + MEMORY.md + 文件锁）、`MemorySession`（回合级记忆选择与提取）、`ModelMemoryQueries`（三个模型边界查询：select/extract/consolidate）。让 Agent 跨会话记住用户偏好、反馈和项目上下文
 
 ## 需要复习
 
@@ -134,8 +135,8 @@
 
 ## 下一阶段
 
-- 阶段 9 第 5 课**文件记忆**（教材 `code/chapters/ch09`）：`manifest.json` + `MEMORY.md` + 文件锁，让 Agent 跨会话记住用户偏好和项目上下文。文件层已就绪（第 3 课建的 `WorkspaceGuard`）
-- 阶段 9 六课的进度：第 1-4 课**已完成**（会话计划、子 Agent、Skill 按需加载 + 文件边界层、产物落盘与上下文压缩），第 5-6 课待做（文件记忆、动态 Prompt 组装）
+- 阶段 9 第 6 课**动态 Prompt 组装**（教材 `code/chapters/ch10`）：根据用户查询和会话状态动态组装系统提示词，整合 Skill、记忆、工具清单等组件
+- 阶段 9 六课的进度：第 1-5 课**已完成**（会话计划、子 Agent、Skill 按需加载 + 文件边界层、产物落盘与上下文压缩、文件记忆），第 6 课待做（动态 Prompt 组装）
 - 第 2 课留下的伏笔：子 Agent 只回一句结论，**那句结论没有落盘**。第 4 课把产物写文件之后，委派的结论也该走同一条路 —— 回路径而不是回全文
 - 阶段 5 至 9 的交付明细见「已完成内容」，模块与包路径见各模块 README
 
@@ -148,7 +149,7 @@
 
 ### 贯穿项
 
-- **最小评估集**：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，29 行跨阶段回归基线。它依赖全部上游模块，所以必须留在最末端，不能被任何模块依赖。每进入一个新阶段往里加 3-5 行
+- **最小评估集**：`99-minimal-eval` 模块的 `MinimalEvaluationSetTest`，36 行跨阶段回归基线（阶段 9 第 5 课新增 4 行记忆验证）。它依赖全部上游模块，所以必须留在最末端，不能被任何模块依赖。每进入一个新阶段往里加 3-5 行
 - **Trace 与结构化日志**：已补（`AgentTrace`/`RoundTrace`，阶段 7）。做成内存里可断言的对象而不是日志行：测试能直接断言「第 2 轮调了哪个工具、为什么停」，不用 grep stdout；后续接日志框架时序列化即可，不必重新找埋点位置
 
 ### 阶段 5 收尾可选项
