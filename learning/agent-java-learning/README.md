@@ -15,13 +15,23 @@ agent-java-learning/
   07-tool-calling/             阶段 6 后半：模型主动选工具，prepare/invoke 分离
   08-agent-loop/               阶段 7：多轮循环与上限、超时、幂等、归因四道工具边界
   09-agent-guardrails/         阶段 8：权限裁决与 Hook 生命周期
-  10-context-engineering/      阶段 9：计划提醒、上下文压缩、子 Agent
+  10-context-engineering/      阶段 10（原阶段 9）：会话计划、子 Agent、Skill 按需加载、上下文压缩
   99-minimal-eval/             跨阶段回归基线，依赖全部上游模块，永远排在最后
 ```
 
 前四个目录是 Java/Spring/Redis 基础，从 `05-llm-client` 起进入 LLM 与 Agent 主线。
 目录号从阶段 6 开始不再与阶段号一一对应：阶段 6 拆成了 `06`、`07` 两个模块，
 之后的目录号比阶段号大 1。每个模块的 README 第一行注明自己属于哪个阶段。
+
+## 当前学习进度
+
+详细进度请查看 [学习进度.md](./学习进度.md)。
+
+**快速概览**：
+- ✅ 阶段 1-9：全部完成（基础 + Agent Loop + 权限 + Hook）
+- ✅ 阶段 10 前 3 课：会话计划、子 Agent、Skill 按需加载（81 测试）
+- ⏸️ 阶段 10 后 3 课：产物落盘、文件记忆、动态 Prompt（待开始）
+- **总测试数**：456 个（453 通过，3 跳过）
 
 RabbitMQ 不在这里。路线重审后，MQ 归入阶段 14「分布式 Agent 后端」，
 先掌握模型调用和 Agent 机制，再把它生产化。完整顺序见
