@@ -2,7 +2,9 @@
 
 一套从零搭建生产级 AI Agent Harness 的 20 章中文教程。
 
-本教程不把 Agent 简化成“调用一次模型 API”。它从最小的 Agent Loop 开始，逐章补齐工具、文件、权限、Hook、计划、上下文、记忆、可靠性、任务调度、多 Agent 协作、Worktree 隔离和 MCP，最后把全部能力接回同一个完整 Harness。每章都有一篇文章和一份可运行的 TypeScript 快照，读者可以边读边运行、边测试边理解设计边界。
+本教程不把 Agent 简化成”调用一次模型 API”。它从最小的 Agent Loop 开始，逐章补齐工具、文件、权限、Hook、计划、上下文、记忆、可靠性、任务调度、多 Agent 协作、Worktree 隔离和 MCP，最后把全部能力接回同一个完整 Harness。
+
+**当前主线：Python 实现** - 每章都有配套的 Python 代码、三段式注释（这是什么/Java类比/为什么需要）、XMind 学习脑图、Java 速通指南和面试题，读者可以边读边运行、边测试边理解设计边界。TypeScript 原始实现保留在 [`typescript/`](./typescript/) 目录供参考。
 
 ## 这套教程解决什么问题
 
@@ -68,40 +70,159 @@ Agent Loop
 
 ## 配套代码如何组织
 
-代码位于 [`code/`](./code/)。每章都有独立快照：
+### Python 实现（当前主线）
+
+代码位于 [`python/`](./python/)。所有章节共享一个虚拟环境，每章是独立的 Python 包：
 
 ```text
-code/
+python/
+├─ .venv/                      # 共享虚拟环境（一次性创建）
+├─ .env                        # 共享 API 配置
+├─ ch01_agent/                 # 第 1 章：Agent Loop 基础
+│  ├─ agent_ch01/              # Python 包（模块化代码）
+│  │  ├─ core/                 # 核心模块（loop.py, tools.py, model.py 等）
+│  │  ├─ adapters/             # 适配器（openai_chat.py, powershell.py 等）
+│  │  ├─ features/             # 功能模块（builtin_tools.py 等）
+│  │  └─ cli.py                # 命令行入口
+│  ├─ tests/                   # 单元测试
+│  ├─ pyproject.toml           # 依赖声明
+│  ├─ ch01_learning_roadmap.xmind   # XMind 学习脑图
+│  ├─ ch01_learning_roadmap.md      # Markdown 脑图备份
+│  ├─ JAVA_QUICKSTART.txt      # Java 开发者 45 分钟速通指南
+│  └─ generate_xmind.py        # XMind 生成脚本
+├─ ch02_agent/                 # 第 2 章：工具注册与文件边界
+│  └─ ...（结构同 ch01）
+├─ ...
+└─ ch20_agent/                 # 第 20 章：完整 Harness
+
+每章学习材料：
+- XMind 脑图：6 个分支（学习路线、核心文件、Java对照、设计模式、关键概念、面试题）
+- JAVA_QUICKSTART.txt：3-4 步学习路线 + 5 个必打断点 + 3 个可选断点 + FAQ
+- 三段式代码注释：「这是什么」+「Java 类比」+「为什么需要」
+- 6-8 道面试题（含详细答案）
+```
+
+各章不是互相独立的玩具项目：后续章节在前章基础上扩展能力，每章是完整的可运行快照。实现细节以当前源码和测试为准。
+
+### TypeScript 原始实现（参考）
+
+TypeScript 原始实现保留在 [`typescript/`](./typescript/) 目录：
+
+```text
+typescript/
 ├─ chapters/
 │  ├─ ch01/
-│  │  ├─ src/       # 本章及之前能力的 TypeScript 实现
-│  │  └─ tests/     # 本章累计行为测试
+│  │  ├─ src/       # TypeScript 实现
+│  │  └─ tests/     # 行为测试
 │  ├─ ...
 │  └─ ch20/
-│     ├─ src/       # 完整 Harness
-│     └─ tests/
-├─ skills/          # 示例 Skill 内容
-├─ scripts/         # 构建与快照漂移检查
+├─ skills/
+├─ scripts/
 ├─ package.json
 └─ .env.example
 ```
 
-各章不是互相独立的玩具项目：后续快照保留前章行为，并在组合根根据 `P01`–`P20` profile 累加能力。实现细节以当前源码和测试为准；不要把“文件存在”或“能导入”当作章节完成证明。
-
 ## 开始阅读与运行
 
-### 1. 准备环境
+### Python 实现（推荐）
+
+#### 1. 准备环境
 
 - Windows 11 示例命令统一使用 PowerShell。
-- Node.js `>=20.12`。
-- 在 `code/` 中安装依赖：
+- Python `>=3.11`。
+- 在 `python/` 中创建虚拟环境：
 
 ```powershell
-Set-Location '.\code'
+cd C:\ajie\code\learn-agent\python
+
+# 创建虚拟环境
+python -m venv .venv
+
+# 升级 pip
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+```
+
+真实模型运行需要配置 `.env`。先复制模板，再填写 API Key：
+
+```powershell
+if (-not (Test-Path '.env')) {
+  Copy-Item '.env.example' '.env'
+}
+```
+
+编辑 `.env` 文件：
+
+```text
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx  # 填入你的 DeepSeek API Key
+OPENAI_MODEL=deepseek-chat
+```
+
+#### 2. 安装章节并运行
+
+按学习进度逐章安装（推荐）：
+
+```powershell
+# 安装 ch01（必须！是所有章节的基础）
+.\.venv\Scripts\python.exe -m pip install -e .\ch01_agent[dev]
+
+# 运行测试验证环境
+.\.venv\Scripts\python.exe -m pytest .\ch01_agent\tests -v
+
+# 手动运行 Agent
+.\.venv\Scripts\python.exe -m agent_ch01.cli “1+1等于几？”
+
+# 继续安装其他章节
+.\.venv\Scripts\python.exe -m pip install -e .\ch02_agent[dev]
+.\.venv\Scripts\python.exe -m pip install -e .\ch03_agent[dev]
+# ... 以此类推
+```
+
+或者一次性安装所有章节：
+
+```powershell
+for ($i=1; $i -le 20; $i++) {
+    $ch = “ch{0:D2}_agent” -f $_
+    .\.venv\Scripts\python.exe -m pip install -e “.\$ch[dev]”
+}
+```
+
+#### 3. 学习材料
+
+每章提供完整的学习材料：
+
+1. **打开 XMind 脑图**：`chXX_learning_roadmap.xmind`
+   - 6 个主分支：学习路线、核心文件、Java对照、设计模式、关键概念、面试题速查
+   
+2. **阅读 Java 速通指南**：`JAVA_QUICKSTART.txt`
+   - 3-4 步学习路线（45 分钟）
+   - 调试断点速查（5 个必打 + 3 个可选，标注行号和观察点）
+   - 核心概念速记、FAQ 常见问题
+
+3. **阅读代码注释**：所有 `.py` 文件都有三段式注释
+   - 这是什么（功能描述）
+   - Java 类比（对照 Java 语法/概念）
+   - 为什么需要（设计动机）
+
+4. **做面试题**：每章 6-8 道面试题在脑图和速通指南中
+
+---
+
+### TypeScript 实现（参考）
+
+如果你想参考 TypeScript 原始实现，进入 `typescript/` 目录：
+
+#### 1. 准备环境
+
+- Node.js `>=20.12`。
+- 在 `typescript/` 中安装依赖：
+
+```powershell
+Set-Location '.\typescript'
 npm ci
 ```
 
-真实模型运行需要配置 `.env`。先复制模板，再填写四个变量：
+真实模型运行需要配置 `.env`：
 
 ```powershell
 if (-not (Test-Path '.env')) {
@@ -116,26 +237,24 @@ OPENAI_MODEL=
 OPENAI_FALLBACK_MODEL=
 ```
 
-离线测试会注入模型和其他外部边界，不要求密钥或网络。没有凭据时，优先运行测试、类型检查和构建，不要把真实 OpenAI smoke test 当作必需门禁。
+#### 2. 运行单章
 
-### 2. 运行单章
-
-每章都有固定 npm script。下面从第 1 章和第 20 章举例：
+每章都有固定 npm script：
 
 ```powershell
-npm run ch01 -- --prompt "列出当前目录"
-npm run ch20 -- --prompt "验证完整 Harness 的动态上下文、MCP 边界和资源关闭"
+npm run ch01 -- --prompt “列出当前目录”
+npm run ch20 -- --prompt “验证完整 Harness”
 ```
 
 也可以通过统一入口选择章节：
 
 ```powershell
-npm run agent-tutorial -- run --chapter 12 --prompt "建立 schema、endpoints、tests 和 docs 的任务依赖"
+npm run agent-tutorial -- run --chapter 12 --prompt “建立任务依赖”
 ```
 
-### 3. 验证实现
+#### 3. 验证实现
 
-从 `code/` 执行：
+从 `typescript/` 执行：
 
 ```powershell
 npm run typecheck
@@ -148,12 +267,31 @@ npm run build
 npm run verify:snapshot-drift
 ```
 
-逐章 review 至少运行对应的 `test:chNN` 和 `typecheck`；共享运行时变化后再运行全量测试、lint、format、build 与快照漂移检查。只有直接验证通过，才能把章节标记为“通过”。
-
 ## 推荐阅读方式
 
-1. 先读文章中的“验收结果/问题本质”，明确本章要证明什么。
-2. 再看 `code/chapters/chNN/src/` 的组合根、核心类型和工具 handler。
+### Python 实现（当前主线）
+
+1. **先看学习材料**：打开 `chXX_learning_roadmap.xmind`，浏览 6 个分支，快速建立全局认知
+2. **读 Java 速通指南**：`JAVA_QUICKSTART.txt` 提供 3-4 步学习路线（45 分钟）
+3. **打断点调试**：按速通指南的断点列表，单步执行理解流程
+4. **阅读核心代码**：重点读 `core/`、`features/`、`adapters/` 的关键文件，三段式注释帮你快速理解
+5. **运行测试**：`pytest chXX_agent/tests -v` 观察状态、事件、权限、文件和错误分支
+6. **做面试题**：验证理解，脑图和速通指南中有 6-8 道题及答案
+7. **对比下一章**：看新增了哪些能力，为什么不能塞回旧模块
+
+推荐学习顺序：
+- **第 1 周**：ch01（Agent Loop 基础）- 深入 3 天，理解透彻
+- **第 2 周**：ch02-ch03（工具注册 + 权限系统）
+- **第 3-4 周**：ch04-ch07（Hook、TODO、子Agent、Skill）
+- **第 5-7 周**：ch08-ch14（上下文压缩、记忆、模块化、API韧性、Task DAG、后台任务、Cron）
+- **第 8-10 周**：ch15-ch20（Mailbox、多Agent、自驱队友、Worktree、MCP、完整Harness）
+
+**总耗时**：1.5-2 个月（每天 1-1.5 小时深度学习）
+
+### TypeScript 实现（参考）
+
+1. 先读文章中的”验收结果/问题本质”，明确本章要证明什么。
+2. 再看 `typescript/chapters/chNN/src/` 的组合根、核心类型和工具 handler。
 3. 运行该章测试，观察状态、事件、权限、文件和错误分支。
 4. 用下一章对比上一章：只找新增能力，以及新增能力为什么不能塞回旧模块。
 5. 读到第 20 章时，回看同一个 `AgentRunner` 的执行顺序、Registry Snapshot、tool result 配对、权限边界和资源关闭。
