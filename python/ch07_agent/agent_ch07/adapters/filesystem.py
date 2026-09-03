@@ -1,5 +1,18 @@
 """本地文件系统适配器。
 
+这是什么：
+    本地文件系统的适配器实现，封装 pathlib/os 的细节并提供路径安全边界。
+
+Java 类比：
+    类似 Java 的基础设施适配器：把 `Files`/`Paths` 的细节藏起来，
+    并在每次操作前检查工作区边界、符号链接和 Windows 保留路径名。
+
+为什么需要：
+    - 每次操作前检查工作区边界、符号链接和 Windows 保留路径名
+    - 统一错误处理，将 OSError 转换为领域异常
+    - 核心层通过 WorkspaceFileSystem 接口调用，不直接依赖 pathlib
+    - 提供路径安全函数供其他模块（如 Skill）复用
+
 这层相当于 Java 的基础设施适配器：把 `pathlib`/`os` 的细节藏起来，
 并在每次操作前检查工作区边界、符号链接和 Windows 保留路径名。
 """
@@ -49,8 +62,17 @@ def _is_windows_reserved(component: str) -> bool:
 def is_windows_reserved_component(component: str) -> bool:
     """公开给其他路径功能复用的 Windows 保留组件判断。
 
-    Java 对照：类似把内部校验方法提炼成 package-private/public utility，避免
-    Skill 和文件工具各自维护一份容易漂移的规则。
+    这是什么：
+        检查路径组件是否是 Windows 保留名称的公共函数。
+
+    Java 类比：
+        类似把内部校验方法提炼成 package-private/public utility，避免
+        Skill 和文件工具各自维护一份容易漂移的规则。
+
+    为什么需要：
+        - 防止使用 Windows 设备名（NUL、CON、PRN、AUX 等）导致系统异常
+        - 拒绝尾随空格/点、非法字符（<>:"|*?）
+        - 供 Skill 路径校验等其他模块复用，保证规则一致性
     """
     return _is_windows_reserved(component)
 
@@ -105,7 +127,21 @@ def safe_path(workspace: str, relative_path: str) -> Path:
 
 
 class LocalWorkspaceFileSystem(WorkspaceFileSystem):
-    """基于 pathlib 的真实工作区实现。"""
+    """基于 pathlib 的真实工作区实现。
+
+    这是什么：
+        实现 WorkspaceFileSystem 接口的本地文件系统适配器。
+
+    Java 类比：
+        class LocalWorkspaceFileSystem implements WorkspaceFileSystem
+        类似适配器模式，将操作系统 API 适配到内部接口。
+
+    为什么需要：
+        - 实现核心层定义的文件系统接口（读、写、编辑、glob）
+        - 每次操作前检查路径安全（工作区边界、符号链接）
+        - 统一错误处理，转换为领域异常
+        - 测试时可以注入 Fake，不需要真实文件系统
+    """
 
     def is_path_within_workspace(self, workspace: str, relative_path: str) -> bool:
         """供权限策略在写入前检查真实路径边界。"""

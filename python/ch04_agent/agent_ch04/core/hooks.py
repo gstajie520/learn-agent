@@ -27,14 +27,31 @@ HOOK_EVENTS: tuple[HookEvent, ...] = ("UserPromptSubmit", "PreToolUse", "PostToo
 
 
 class HookContractError(Exception):
-    """Hook 输入、输出或事件字段违反契约时抛出的领域异常。"""
+    """Hook 输入、输出或事件字段违反契约时抛出的领域异常。
+
+    这是什么：Hook 契约违反的专用异常
+    Java 类比：类似 HookViolationException 或 ContractException
+    为什么需要：Hook 回调必须遵守严格契约（事件对应字段、返回值结构），违反时需明确报错
+    """
 
 
 def _is_event(value: object) -> bool:
+    """检查值是否是合法的 Hook 事件名称。
+
+    这是什么：事件名称校验器
+    Java 类比：类似 private boolean isValidEvent(Object value)
+    为什么需要：运行时校验事件名称，防止拼写错误或传入非法事件
+    """
     return value in HOOK_EVENTS
 
 
 def _is_prepared(value: object) -> bool:
+    """检查值是否是有效的已准备工具调用（无错误且包含定义和参数）。
+
+    这是什么：工具调用完整性校验器
+    Java 类比：类似 private boolean isValidPrepared(Object value)
+    为什么需要：Hook 只能处理已通过校验的工具调用，确保定义和参数都存在
+    """
     return isinstance(value, PreparedToolCall) and value.error is None and value.definition is not None and value.arguments is not None
 
 
@@ -42,8 +59,17 @@ def _is_prepared(value: object) -> bool:
 class HookContext:
     """某次回调能看到的最小事件上下文。
 
-    Python 的 `None` 类似 Java 的 `null`，但这里不是任意字段都能为 None：
-    `__post_init__` 会根据事件强制检查字段归属，防止 Hook 读取错误阶段的数据。
+    这是什么：Hook 回调的不可变输入上下文
+    Java 类比：类似 record HookContext(HookEvent event, ...) 带字段校验
+    为什么需要：为每个生命周期事件提供强类型上下文，确保回调只能访问该事件允许的字段
+
+    字段说明：
+        event: 触发的事件类型（四选一）
+        message: UserPromptSubmit 事件中的用户消息
+        prepared: PreToolUse/PostToolUse 事件中的已准备工具调用
+        result: PostToolUse 事件中的工具执行结果
+        history: Stop 事件中的完整对话历史
+        stop_hook_active: Stop 事件是否在 stop hook 激活状态下触发
     """
 
     event: HookEvent
@@ -54,6 +80,12 @@ class HookContext:
     stop_hook_active: bool = False
 
     def __post_init__(self) -> None:
+        """构造后校验：每个事件只能携带对应的字段组合。
+
+        这是什么：上下文字段的契约校验器
+        Java 类比：类似构造器末尾调用 validate() 检查字段组合
+        为什么需要：防止事件和字段不匹配（如 Stop 事件却携带 prepared），确保 Hook 拿到正确数据
+        """
         if not _is_event(self.event):
             raise HookContractError("event 必须是受支持的 HookEvent")
         if not isinstance(self.history, tuple) or not all(isinstance(item, (SystemMessage, AssistantMessage, UserMessage, ToolMessage)) for item in self.history):
@@ -83,9 +115,18 @@ class HookContext:
 class HookResult:
     """回调对循环提出的结构化影响。
 
-    `additional_context` 只能是 system 消息，`force_continue` 只能是 user 消息；
-    这样 Hook 无法伪造 assistant/tool 配对。所有返回值都复制成新对象，
-    对应 Java 中从外部 DTO 转换成内部不可变值对象。
+    这是什么：Hook 回调的不可变返回结果
+    Java 类比：类似 record HookResult(...) 带字段校验和防御性复制
+    为什么需要：让 Hook 以声明方式影响 Agent 流程，而不是直接修改状态（避免扩展逻辑变成一堆 if/else）
+
+    字段说明：
+        permission_behavior: 权限行为覆盖（仅 PreToolUse 有效）
+        updated_input: 修改后的工具调用输入（仅 PreToolUse 有效）
+        updated_output: 修改后的工具执行结果（仅 PostToolUse 有效）
+        additional_context: 追加到对话中的系统消息
+        blocking_error: 阻止工具执行的错误（仅 PreToolUse 有效）
+        prevent_continuation: 阻止继续执行（仅 PostToolUse 有效）
+        force_continue: 强制继续的用户消息（仅 Stop 有效）
     """
 
     permission_behavior: PermissionBehavior = "passthrough"
@@ -97,6 +138,12 @@ class HookResult:
     force_continue: UserMessage | None = None
 
     def __post_init__(self) -> None:
+        """校验字段有效性并防御性复制所有嵌套对象。
+
+        这是什么：结果字段的契约校验和防御性复制
+        Java 类比：类似构造器中的 validate() + 深拷贝
+        为什么需要：防止回调传入非法值或通过引用修改内部状态
+        """
         if self.permission_behavior not in PERMISSION_BEHAVIORS:
             raise HookContractError("permission_behavior 必须是受支持的权限行为")
         if self.updated_input is not None and not _is_prepared(self.updated_input):
@@ -118,7 +165,12 @@ class HookResult:
         object.__setattr__(self, "force_continue", None if self.force_continue is None else user_message(self.force_continue.content))
 
     def validate_for(self, event: HookEvent) -> None:
-        """拒绝回调在错误事件上使用字段，类似 Java Bean Validation 的分组校验。"""
+        """拒绝回调在错误事件上使用字段，类似 Java Bean Validation 的分组校验。
+
+        这是什么：基于事件的字段使用校验器
+        Java 类比：类似 @GroupSequence 分组校验，确保字段只在允许的事件中使用
+        为什么需要：防止回调在错误的生命周期阶段使用字段（如在 Stop 事件中使用 updated_input）
+        """
         invalid: list[str] = []
         if event != "PreToolUse":
             if self.permission_behavior != "passthrough": invalid.append("permission_behavior")
@@ -137,13 +189,29 @@ HookCallback = Callable[[HookContext], HookResult | Awaitable[HookResult]]
 
 
 class HookRegistry:
-    """按注册顺序串行执行四类生命周期回调。"""
+    """按注册顺序串行执行四类生命周期回调。
+
+    这是什么：Hook 回调的注册表和执行器
+    Java 类比：类似 @Component class HookRegistry { Map<Event, List<Consumer<Context>>> callbacks }
+    为什么需要：让扩展点以观察者模式插入生命周期，而不是在主流程中硬编码 if/else
+    """
 
     def __init__(self) -> None:
+        """初始化四个事件的空回调列表。
+
+        这是什么：构造器，为每个事件类型创建独立队列
+        Java 类比：类似构造器中初始化 Map<Event, List<Callback>>
+        为什么需要：让每个事件维护独立的回调队列，按注册顺序执行
+        """
         self._callbacks: dict[HookEvent, list[HookCallback]] = {event: [] for event in HOOK_EVENTS}
 
     def register(self, event: HookEvent, callback: HookCallback) -> None:
-        """把回调追加到事件队列尾部；注册顺序就是执行顺序。"""
+        """把回调追加到事件队列尾部；注册顺序就是执行顺序。
+
+        这是什么：回调注册方法
+        Java 类比：类似 public void addListener(Event event, Consumer<Context> callback)
+        为什么需要：让用户以声明方式注册扩展逻辑，保证执行顺序可预测
+        """
         if not _is_event(event):
             raise HookContractError("event 必须是受支持的 HookEvent")
         if not callable(callback):
@@ -151,7 +219,12 @@ class HookRegistry:
         self._callbacks[event].append(callback)
 
     async def run(self, context: HookContext) -> HookResult:
-        """串行执行回调并把上一个回调的改写传给下一个回调。"""
+        """串行执行回调并把上一个回调的改写传给下一个回调。
+
+        这是什么：回调链的执行引擎
+        Java 类比：类似 CompletableFuture 链式调用，每个回调看到前一个的结果
+        为什么需要：让多个 Hook 能协作处理同一事件，后续 Hook 能看到前面的修改
+        """
         if not isinstance(context, HookContext):
             raise HookContractError("context 必须是 HookContext")
         combined = HookResult()
@@ -178,19 +251,49 @@ class HookRegistry:
         return combined
 
     async def run_user_prompt(self, message: UserMessage) -> HookResult:
+        """执行 UserPromptSubmit 事件的所有回调。
+
+        这是什么：用户提示提交事件的便捷执行方法
+        Java 类比：类似 public HookResult onUserPrompt(UserMessage msg)
+        为什么需要：为常见事件提供类型安全的快捷方法，避免手动构造 HookContext
+        """
         return await self.run(HookContext("UserPromptSubmit", message=message))
 
     async def run_pre_tool(self, prepared: PreparedToolCall) -> HookResult:
+        """执行 PreToolUse 事件的所有回调。
+
+        这是什么：工具执行前事件的便捷执行方法
+        Java 类比：类似 public HookResult onPreTool(PreparedToolCall call)
+        为什么需要：为常见事件提供类型安全的快捷方法
+        """
         return await self.run(HookContext("PreToolUse", prepared=prepared))
 
     async def run_post_tool(self, prepared: PreparedToolCall, result: ToolResult) -> HookResult:
+        """执行 PostToolUse 事件的所有回调。
+
+        这是什么：工具执行后事件的便捷执行方法
+        Java 类比：类似 public HookResult onPostTool(PreparedToolCall call, ToolResult result)
+        为什么需要：为常见事件提供类型安全的快捷方法
+        """
         return await self.run(HookContext("PostToolUse", prepared=prepared, result=result))
 
     async def run_stop(self, history: Sequence[ChatMessage], stop_hook_active: bool) -> HookResult:
+        """执行 Stop 事件的所有回调。
+
+        这是什么：停止事件的便捷执行方法
+        Java 类比：类似 public HookResult onStop(List<ChatMessage> history, boolean stopActive)
+        为什么需要：为常见事件提供类型安全的快捷方法
+        """
         return await self.run(HookContext("Stop", history=tuple(history), stop_hook_active=stop_hook_active))
 
     @staticmethod
     def _normalize_input(context: HookContext, result: HookResult) -> PreparedToolCall | None:
+        """校验并规范化 updated_input，确保它保留原工具的核心属性。
+
+        这是什么：工具调用修改的完整性校验器
+        Java 类比：类似 private PreparedToolCall validateUpdate(HookContext ctx, HookResult res)
+        为什么需要：防止 Hook 修改工具的 id、名称或定义，确保只能修改参数
+        """
         updated = result.updated_input
         if updated is None:
             return None
@@ -209,7 +312,12 @@ class HookRegistry:
 
 
 def _merge_results(current: HookResult, incoming: HookResult) -> HookResult:
-    """合并多个回调：上下文累积、改写以后者为准、权限取最严格。"""
+    """合并多个回调：上下文累积、改写以后者为准、权限取最严格。
+
+    这是什么：多个 Hook 结果的合并策略
+    Java 类比：类似 HookResult merge(HookResult a, HookResult b)
+    为什么需要：多个 Hook 同时影响时，需要明确合并规则（后覆盖前，权限取严）
+    """
     return HookResult(
         permission_behavior=_stronger_permission(current.permission_behavior, incoming.permission_behavior),
         updated_input=incoming.updated_input or current.updated_input,
@@ -222,5 +330,11 @@ def _merge_results(current: HookResult, incoming: HookResult) -> HookResult:
 
 
 def _stronger_permission(current: PermissionBehavior, incoming: PermissionBehavior) -> PermissionBehavior:
+    """返回两个权限行为中更严格的一个（deny > ask > allow > passthrough）。
+
+    这是什么：权限行为的优先级比较器
+    Java 类比：类似 PermissionBehavior selectStricter(PermissionBehavior a, PermissionBehavior b)
+    为什么需要：多个 Hook 同时影响权限时，确保最严格的限制生效
+    """
     priority: Mapping[PermissionBehavior, int] = {"passthrough": 0, "allow": 1, "ask": 2, "deny": 3}
     return incoming if priority[incoming] > priority[current] else current

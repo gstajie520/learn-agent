@@ -166,11 +166,15 @@ class SqliteTaskStore:
             return self._claim(connection, task, normalized_owner, now)
 
     def claim_next(self, owner: str) -> TaskClaim | None:
-        """按创建顺序认领第一个 ready 任务；没有候选任务时返回 ``None``。
+        “””按创建顺序认领第一个 ready 任务；没有候选任务时返回 ``None``。
+
+        这是什么：原子认领队列中第一个可执行任务的核心方法
+        Java 类比：类似 @Transactional 方法中 SELECT FOR UPDATE + UPDATE 组合
+        为什么需要：让多个 worker 并发认领时不会拿到同一个任务，保证任务分配唯一性
 
         ``None`` 类似 Java 的 ``Optional.empty()``。Python 常用 ``T | None`` 表示
         “可能有一个 T，也可能没有值”。
-        """
+        “””
         normalized_owner = normalize_owner(owner)
         with self._transaction() as connection:
             now = self._now()
@@ -186,7 +190,18 @@ class SqliteTaskStore:
             return None
 
     def complete_task(self, task_id: str, owner: str, claim_token: str) -> TaskCompletion:
-        """使用当前 owner 和 claim token 完成任务，并返回本次解锁的下游任务。"""
+        """使用当前 owner 和 claim token 完成任务，并返回本次解锁的下游任务。
+
+        这是什么：完成任务的核心方法，校验 owner + token 双重身份
+        Java 类比：类似乐观锁更新，UPDATE WHERE id=? AND owner=? AND version=?
+        为什么需要：防止过期 worker 或伪造请求完成任务，保证只有当前认领者能完成
+
+        关键机制：
+        - owner 必须匹配当前任务的 owner（来自 ToolContext.identity）
+        - claim_token 必须匹配当前任务的 token（一次性 UUID）
+        - 租约过期时抛 TaskLeaseExpiredError，即使 owner 和 token 正确
+        - 完成后自动查找所有依赖已满足的下游任务并返回
+        """
         normalized_id = canonical_task_id(task_id)
         normalized_owner = normalize_owner(owner)
         normalized_token = canonical_claim_token(claim_token)
@@ -252,7 +267,17 @@ class SqliteTaskStore:
         owner: str,
         now: datetime,
     ) -> TaskClaim:
-        """事务内部认领步骤；调用方必须已经持有 ``BEGIN IMMEDIATE`` 写锁。"""
+        """事务内部认领步骤；调用方必须已经持有 ``BEGIN IMMEDIATE`` 写锁。
+
+        这是什么：认领任务的核心逻辑，生成 claim_token 并设置租约
+        Java 类比：类似 private 方法在事务内执行 UPDATE + 生成乐观锁版本号
+        为什么需要：封装认领的原子步骤（检查依赖 → 生成 token → 更新状态 → 设置租约）
+
+        关键机制：
+        - claim_token 是一次性 UUID，防止重复完成
+        - lease_expires_at_utc 是租约到期时间，过期后自动回收
+        - owner 来自 ToolContext.identity，不能由模型伪造
+        """
         if task.status != "pending":
             raise TaskStateError(f"任务 {task.id} 当前是 {task.status}，只有 pending 才能认领")
         rows = connection.execute(
@@ -293,6 +318,16 @@ class SqliteTaskStore:
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         """统一管理连接、建表、写事务、提交和回滚。
+
+        这是什么：事务边界封装，使用 BEGIN IMMEDIATE 保证原子性
+        Java 类比：类似 @Transactional 注解 + try-with-resources
+        为什么需要：确保认领操作的"扫描-检查-写入"不被其他事务插入，避免重复认领
+
+        关键设置：
+        - BEGIN IMMEDIATE 立即获取写锁，类比 SELECT FOR UPDATE
+        - timeout=10 和 busy_timeout=10000 防止死锁时卡住
+        - isolation_level=None 手动控制事务边界
+        - 异常时自动回滚，成功时自动提交
 
         ``with`` 是 Python 上下文管理器，类似 Java ``try-with-resources``。
         离开代码块时一定关闭连接；发生异常时一定回滚。
@@ -416,7 +451,18 @@ class SqliteTaskStore:
 
     @staticmethod
     def _release_expired(connection: sqlite3.Connection, now: datetime) -> None:
-        """把 ``lease <= now`` 的 in_progress 任务恢复成可认领状态。"""
+        """把 ``lease <= now`` 的 in_progress 任务恢复成可认领状态。
+
+        这是什么：租约过期回收机制，把超时任务重置为 pending
+        Java 类比：类似定时任务或事务前置检查，清理过期的乐观锁
+        为什么需要：worker 可能崩溃或执行超时，必须让任务重新进入队列，避免永久卡住
+
+        关键机制：
+        - 半开区间判断：lease_expires_at_utc <= now（包含边界）
+        - 清空 owner、claim_token、lease_expires_at_utc
+        - 旧的 claim_token 永久失效，即使任务重新被认领
+        - 防止延迟完成覆盖新 worker 的进度
+        """
         connection.execute(
             """
             UPDATE tasks

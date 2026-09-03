@@ -14,8 +14,9 @@ from ..core.commands import CommandResult, CommandRunner
 class PowerShellRunner(CommandRunner):
     """CommandRunner 的真实 Windows 实现。
 
-    Java 对照：这相当于一个内部使用 `ProcessBuilder` 的实现类。
-    dataclass 自动生成构造方法，下面三个字段就是构造参数和成员变量。
+    这是什么：PowerShell 命令执行器
+    Java 类比：类似封装了 ProcessBuilder 的 @Component class PowerShellAdapter implements CommandRunner
+    为什么需要：将底层 subprocess 调用封装为领域接口，便于跨平台替换（如 Linux 用 bash）和测试时注入 Fake
     """
 
     executable: str = "powershell.exe"  # 要启动的程序，类似 ProcessBuilder 的第一个参数。
@@ -25,7 +26,9 @@ class PowerShellRunner(CommandRunner):
     def __post_init__(self) -> None:
         """dataclass 构造完成后自动调用，用来校验构造参数。
 
-        Java 对照：相当于在构造方法末尾执行参数检查。
+        这是什么：构造后的参数校验钩子
+        Java 类比：类似在构造器末尾调用的 validate() 方法
+        为什么需要：dataclass 自动生成构造器，__post_init__ 让我们能在构造完成后立即校验参数
         """
         if self.timeout_ms <= 0:
             raise ValueError("timeout_ms 必须是正整数")
@@ -35,8 +38,14 @@ class PowerShellRunner(CommandRunner):
     def run(self, command: str, cwd: str, timeout_ms: int | None = None) -> CommandResult:
         """启动 PowerShell 子进程并把结果收敛成 CommandResult。
 
-        参数：command 是命令文本；cwd 是工作目录；timeout_ms 可以覆盖默认超时。
-        返回：不暴露 subprocess 对象，只返回核心层定义的 CommandResult。
+        这是什么：命令执行的核心方法
+        Java 类比：类似 public CommandResult execute(String command, Path workDir, Integer timeout)
+        为什么需要：实现 CommandRunner 接口，将 subprocess 的原始返回值转换为领域对象，隔离底层细节
+
+        参数：
+            command: PowerShell 命令文本
+            cwd: 工作目录
+            timeout_ms: 可选超时覆盖，未指定时使用实例默认值
         """
         if not command:
             raise ValueError("command 不能为空")

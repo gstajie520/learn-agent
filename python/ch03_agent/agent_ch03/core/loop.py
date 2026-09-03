@@ -1,5 +1,9 @@
 ﻿"""Agent 核心循环。
 
+这是什么：编排模型调用、工具执行、权限检查的主循环。
+Java 类比：类似 ApplicationService，协调多个领域服务完成业务流程。
+为什么需要：Agent 是循环调用工具的编排系统，需要管理消息历史、轮数限制、权限检查。
+
 Java 角度：这是应用服务，不负责创建 OpenAI 客户端或 PowerShell 进程；
 它只编排 ModelClient、ToolRegistry 和消息历史。
 """

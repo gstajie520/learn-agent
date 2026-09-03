@@ -1,5 +1,16 @@
 """组合根：按固定 Profile 装配第 1 到第 7 章累计能力。
 
+这是什么：
+    应用的组合根（Composition Root），负责创建和装配所有依赖对象。
+
+Java 类比：
+    类似 Spring 的 @Configuration 类，定义 Bean 的创建和依赖注入逻辑。
+
+为什么需要：
+    - 集中管理依赖注入，避免业务代码直接创建适配器
+    - 按章节 Profile 控制能力装配，防止越级使用未学习的特性
+    - 分离对象创建和业务逻辑，符合单一职责原则
+
 Java 对照：这相当于 Spring `@Configuration`。它创建真实适配器、工具注册表、
 权限策略和 Hook 注册表，但不把业务流程写在对象创建代码里。
 """
@@ -39,7 +50,21 @@ def build_agent(
     max_turns: int = 20,
     subagent_model_factory: Callable[[], ModelClient] | None = None,
 ) -> AgentRunner:
-    """创建固定章节 Agent，并拒绝能力越级注入。"""
+    """创建固定章节 Agent，并拒绝能力越级注入。
+
+    这是什么：
+        根据章节 Profile 创建完整配置的 AgentRunner 的工厂方法。
+
+    Java 类比：
+        AgentRunner buildAgent(ChapterProfile profile, ...) 工厂方法
+        类似 Spring 的 @Bean 方法，返回完全装配好的对象。
+
+    为什么需要：
+        - 按章节 Profile 控制能力白名单，防止第 2 章使用第 5 章的 TODO
+        - 集中装配所有依赖（模型、工具、权限、Hook），保证配置正确性
+        - 为测试提供统一的创建入口，便于注入 Fake 对象
+        - 第 7 章新增：注册 SkillRegistry 和 load_skill 工具
+    """
     if (
         profile is not P01
         and profile is not P02

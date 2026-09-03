@@ -1,4 +1,17 @@
-"""环境配置读取与校验。"""
+"""环境配置读取与校验。
+
+这是什么：
+    配置管理模块，负责从 .env 文件或环境变量读取并校验模型配置。
+
+Java 类比：
+    类似 Spring Boot 的 @ConfigurationProperties + Bean Validation。
+
+为什么需要：
+    - 集中管理配置读取逻辑，避免在业务代码中散落配置访问
+    - 启动时就校验配置完整性，避免运行时才发现配置错误
+    - 支持多种配置源（.env 文件、环境变量），便于不同环境部署
+    - 一次性收集所有缺失字段，提升配置错误的诊断效率
+"""
 
 import os
 from dataclasses import dataclass
@@ -9,7 +22,20 @@ from dotenv import dotenv_values
 
 
 class ConfigurationError(Exception):
-    """配置不完整或格式错误，类似 Spring 启动阶段的配置绑定异常。"""
+    """配置不完整或格式错误，类似 Spring 启动阶段的配置绑定异常。
+
+    这是什么：
+        配置校验失败时抛出的异常，包含所有缺失或错误的字段列表。
+
+    Java 类比：
+        class ConfigurationException extends RuntimeException
+        类似 Spring Boot 的 BindException。
+
+    为什么需要：
+        - 启动时就失败，避免运行时才发现配置问题
+        - 一次性报告所有错误字段，而非逐个报错
+        - 保存 missing_fields 便于自动化诊断和提示
+    """
 
     def __init__(self, missing_fields: list[str]) -> None:
         self.missing_fields = tuple(missing_fields)  # 转成 tuple，避免异常创建后被外部修改。
@@ -18,7 +44,20 @@ class ConfigurationError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class OpenAISettings:
-    """校验通过后的模型配置。后续代码不再处理空字符串。"""
+    """校验通过后的模型配置。后续代码不再处理空字符串。
+
+    这是什么：
+        模型配置的不可变数据对象，所有字段已通过校验且非空。
+
+    Java 类比：
+        record OpenAISettings(String baseUrl, String apiKey, String model)
+        类似 @ConfigurationProperties 绑定的不可变配置类。
+
+    为什么需要：
+        - 不可变设计（frozen=True）保证配置不会被意外修改
+        - 校验通过后创建，后续代码可以信任字段非空且格式正确
+        - 类型安全，避免使用 dict 传递配置导致的字段拼写错误
+    """
 
     base_url: str  # OpenAI 兼容服务根地址，不包含 /chat/completions。
     api_key: str  # 服务商密钥，不能写入日志或提交 Git。

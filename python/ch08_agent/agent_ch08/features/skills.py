@@ -1,5 +1,9 @@
 """第七章按需加载 Skill。
 
+这是什么：实现 Skill 扫描、注册和按需加载的模块
+Java 类比：类似 SkillRegistry + SkillLoader 的组合服务
+为什么需要：避免启动时加载所有 Skill 文档撑爆 System Prompt，只在模型调用时才读取正文
+
 Java 对照：`SkillRegistry` 类似一个只读的配置/路由注册表。启动时只读取
 每个 `SKILL.md` 的 frontmatter，得到名称和描述；模型真正调用 `load_skill`
 时才读取正文。这样 System Prompt 不会在启动时塞入所有技能说明。
@@ -27,32 +31,67 @@ SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class SkillError(Exception):
-    """Skill 领域错误的共同父类。"""
+    """Skill 领域错误的共同父类。
+
+    这是什么：所有 Skill 相关异常的基类
+    Java 类比：类似 SkillException extends RuntimeException
+    为什么需要：统一捕获所有 Skill 操作失败的情况
+    """
 
 
 class SkillPathError(SkillError):
-    """Skill 根目录、Skill 目录或 manifest 逃出了受控边界。"""
+    """Skill 根目录、Skill 目录或 manifest 逃出了受控边界。
+
+    这是什么：表示 Skill 路径不安全或逃逸工作区
+    Java 类比：类似 InvalidSkillPathException extends SkillException
+    为什么需要：防止恶意 Skill 通过路径穿越访问工作区外的文件
+    """
 
 
 class SkillManifestError(SkillError):
-    """SKILL.md 的 frontmatter 缺失、YAML 错误或字段不符合契约。"""
+    """SKILL.md 的 frontmatter 缺失、YAML 错误或字段不符合契约。
+
+    这是什么：表示 Skill 清单格式不正确或必填字段缺失
+    Java 类比：类似 InvalidManifestException extends SkillException
+    为什么需要：在启动阶段就发现格式错误，避免运行时加载失败
+    """
 
 
 class DuplicateSkillError(SkillError):
-    """多个目录声明了同一个 Skill 名称。"""
+    """多个目录声明了同一个 Skill 名称。
+
+    这是什么：表示存在重名的 Skill 定义
+    Java 类比：类似 DuplicateSkillNameException extends SkillException
+    为什么需要：确保每个 Skill 名称唯一，避免路由冲突
+    """
 
 
 class SkillNameError(SkillError):
-    """请求或 manifest 中的 Skill 名称不合法。"""
+    """请求或 manifest 中的 Skill 名称不合法。
+
+    这是什么：表示 Skill 名称格式不符合规范
+    Java 类比：类似 IllegalSkillNameException extends SkillException
+    为什么需要：强制 Skill 名称符合 kebab-case 规范，避免路径安全问题
+    """
 
 
 class SkillNotFoundError(SkillError):
-    """名称格式正确，但当前注册表没有该 Skill。"""
+    """名称格式正确，但当前注册表没有该 Skill。
+
+    这是什么：表示请求的 Skill 不存在
+    Java 类比：类似 SkillNotFoundException extends SkillException
+    为什么需要：区分名称格式错误和 Skill 不存在，便于错误诊断
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class SkillSummary:
-    """公开给模型的目录条目，只包含路由所需的两项元数据。"""
+    """公开给模型的目录条目，只包含路由所需的两项元数据。
+
+    这是什么：Skill 的简要描述，用于生成 System Prompt 中的目录
+    Java 类比：类似 record SkillSummary(String name, String description)
+    为什么需要：让模型知道有哪些 Skill 可用，但不包含完整正文避免撑爆上下文
+    """
 
     name: str  # 稳定的工具路由名称，也必须等于目录名。
     description: str  # 一行路由说明，不包含 Skill 私有正文。

@@ -1,5 +1,15 @@
 """第十二章 JSON TaskStore：整图锁、严格重建和原子文件替换。
 
+这是什么：TaskStore 接口的文件系统存储实现
+Java 类比：类似 JPA Repository 的文件存储版本，但用文件锁代替数据库事务
+为什么需要：将 Task DAG 持久化到磁盘，支持多进程并发访问
+
+核心机制：
+    1. 文件锁：进程级锁（fcntl/msvcrt），防止并发写入冲突
+    2. 原子写入：临时文件 + rename，防止写入过程中崩溃导致 JSON 损坏
+    3. DAG 校验：每次写入前检查环、缺边、自依赖
+    4. 整图加载：每次操作都重新读取全部任务，保证一致性
+
 Java 对照：``JsonTaskStore`` 是 Repository 的基础设施实现。每个公开方法都像一个
 小事务：取得整张图的锁，在锁内重新读取全部 JSON，验证 DAG，再执行一次状态迁移。
 它不是数据库事务，但可以保证合规 writer 之间不会同时认领同一个 Task。
@@ -33,14 +43,29 @@ from ..features.tasks import (
     normalize_owner,
 )
 
-AtomicReplace = Callable[[Path, bytes], None]
-IdGenerator = Callable[[], str]
-_PROCESS_LOCKS: dict[str, threading.RLock] = {}
-_PROCESS_LOCKS_GUARD = threading.Lock()
+AtomicReplace = Callable[[Path, bytes], None]  # 原子替换函数类型（临时文件 + rename）
+IdGenerator = Callable[[], str]  # ID 生成器类型（默认 UUID v4，测试可注入固定序列）
+_PROCESS_LOCKS: dict[str, threading.RLock] = {}  # 进程内锁映射表（按 workspace 路径区分）
+_PROCESS_LOCKS_GUARD = threading.Lock()  # 保护锁映射表自身的元锁
 
 
 class JsonTaskStore:
     """把任务图保存到 ``workspace/.agent_tutorial/.tasks``。
+
+    这是什么：基于 JSON 文件的 TaskStore 实现
+    Java 类比：类似 FileSystemRepository 或 JPA + H2 文件数据库
+    为什么需要：无需数据库，直接用文件系统持久化任务图
+
+    存储结构：
+        workspace/.agent_tutorial/.tasks/
+            {uuid1}.json  → Task 1 的 JSON
+            {uuid2}.json  → Task 2 的 JSON
+            ...
+
+    并发控制：
+        - 进程内：threading.RLock（可重入锁）
+        - 进程间：fcntl.flock（POSIX）或 msvcrt.locking（Windows）
+        - 原子写入：临时文件 + os.replace（文件系统原子操作）
 
     字段说明：
         ``_workspace_input``：调用方传入的 workspace，操作时每次重新 resolve。
@@ -55,49 +80,99 @@ class JsonTaskStore:
         id_generator: IdGenerator | None = None,
         atomic_replace: AtomicReplace | None = None,
     ) -> None:
+        """初始化 JSON TaskStore。
+
+        这是什么：构造函数，类似 Java 的依赖注入
+        Java 类比：类似 @Autowired 注入依赖
+        为什么需要：允许测试时注入 Mock ID 生成器和文件替换函数
+
+        参数：
+            workspace: workspace 根目录（存储在 {workspace}/.agent_tutorial/.tasks/）
+            id_generator: 可选的 ID 生成函数（默认 uuid.uuid4()）
+            atomic_replace: 可选的原子替换函数（默认 _atomic_replace）
+        """
         if not isinstance(workspace, str) or not workspace.strip():
             raise TypeError("workspace 必须是非空字符串")
         if id_generator is not None and not callable(id_generator):
             raise TypeError("id_generator 必须可调用")
         if atomic_replace is not None and not callable(atomic_replace):
             raise TypeError("atomic_replace 必须可调用")
-        self._workspace_input = workspace
-        self._id_generator = id_generator or (lambda: str(uuid.uuid4()))
-        self._atomic_replace = atomic_replace or _atomic_replace
+        self._workspace_input = workspace  # 保存原始输入，每次操作时重新 resolve
+        self._id_generator = id_generator or (lambda: str(uuid.uuid4()))  # 默认 UUID v4
+        self._atomic_replace = atomic_replace or _atomic_replace  # 默认原子替换
 
     def create_task(self, value: CreateTaskInput) -> Task:
-        """在锁内生成 ID、校验整张候选图，然后原子写入新任务。"""
-        paths = self._prepare_paths(create=True)
+        """在锁内生成 ID、校验整张候选图，然后原子写入新任务。
+
+        这是什么：创建一个新的 pending 任务
+        Java 类比：类似 repository.save(task)
+        为什么需要：持久化任务到磁盘，支持进程重启后恢复
+
+        执行流程：
+            1. 获取文件锁（进程内 + 进程间）
+            2. 加载现有任务图
+            3. 生成新的 UUID
+            4. 构造 Task 对象（status = "pending", owner = None）
+            5. 校验候选图（检查环、缺边、自依赖）
+            6. 原子写入 JSON 文件
+            7. 释放锁
+
+        参数：
+            value: CreateTaskInput（subject, description, blocked_by）
+
+        返回：
+            新创建的 Task（包含系统生成的 id）
+
+        异常：
+            TaskGraphError: blocked_by 引用不存在的 ID，或创建后形成环
+            TaskStorageError: 无法创建存储目录或写入失败
+        """
+        paths = self._prepare_paths(create=True)  # 准备存储目录（不存在则创建）
         if paths is None:
             raise TaskStorageError("无法创建 Task 存储目录")
-        with self._locked(paths):
-            graph = self._load_graph(paths)
-            task_id = self._generated_id()
-            if task_id in graph:
+        with self._locked(paths):  # 获取锁（进程内 + 进程间）
+            graph = self._load_graph(paths)  # 加载现有任务图
+            task_id = self._generated_id()  # 生成新的 UUID
+            if task_id in graph:  # ID 碰撞检查（UUID v4 概率极低，但仍需校验）
                 raise TaskGraphError(f"task id 已存在: {task_id}")
             task = Task(
                 task_id,
                 value.subject,
                 value.description,
-                "pending",
-                None,
-                value.blocked_by,
+                "pending",  # 新任务固定为 pending 状态
+                None,  # pending 任务 owner 为 None
+                value.blocked_by,  # 依赖列表（可为空）
             )
-            candidate = dict(graph)
-            candidate[task.id] = task
-            _validate_graph(candidate)
-            self._write_task(paths, task)
+            candidate = dict(graph)  # 复制现有图（不修改原图）
+            candidate[task.id] = task  # 添加新任务
+            _validate_graph(candidate)  # 校验整个候选图（检查环、缺边等）
+            self._write_task(paths, task)  # 原子写入 JSON 文件
             return task
 
     def get_task(self, task_id: str) -> Task:
-        """读取一致的整图快照，再从中返回目标任务。"""
-        normalized = canonical_task_id(task_id)
-        paths = self._prepare_paths(create=False)
-        if paths is None:
+        """读取一致的整图快照，再从中返回目标任务。
+
+        这是什么：按 ID 查询单个任务
+        Java 类比：类似 repository.findById(id).orElseThrow()
+        为什么需要：查询任务详情，或在认领前确认任务存在
+
+        参数：
+            task_id: canonical UUID（小写，带连字符）
+
+        返回：
+            找到的 Task 对象
+
+        异常：
+            TaskNotFoundError: task_id 不存在
+            TaskGraphError: task_id 格式非法
+        """
+        normalized = canonical_task_id(task_id)  # 校验和标准化 ID
+        paths = self._prepare_paths(create=False)  # 准备路径（不创建目录）
+        if paths is None:  # 目录不存在 = 没有任何任务
             raise TaskNotFoundError(f"找不到任务: {normalized}")
-        with self._locked(paths):
-            task = self._load_graph(paths).get(normalized)
-            if task is None:
+        with self._locked(paths):  # 获取锁（保证一致性读）
+            task = self._load_graph(paths).get(normalized)  # 从整图中查找
+            if task is None:  # ID 不存在
                 raise TaskNotFoundError(f"找不到任务: {normalized}")
             return task
 

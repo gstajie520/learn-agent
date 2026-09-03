@@ -24,18 +24,28 @@ _WINDOWS_DEVICE_NAMES = {"AUX", "CLOCK$", "CON", "CONIN$", "CONOUT$", "NUL", "PR
 
 
 def _translate_os_error(error: OSError) -> Exception:
-    """把 Python 操作系统异常转换成稳定的领域异常。"""
+    """把 Python 操作系统异常转换成稳定的领域异常。
+
+    这是什么：异常转换器，将操作系统级异常映射为领域异常
+    Java 类比：类似 catch (IOException e) { throw new DomainException(e); }
+    为什么需要：屏蔽操作系统差异，让上层只需处理领域异常而非底层 OSError
+    """
     if isinstance(error, FileNotFoundError):
         return error
-    if getattr(error, "errno", None) == 2:
+    if getattr(error, "errno", None) == 2:  # errno 2 = ENOENT（文件不存在）
         return FileNotFoundError("文件或目录不存在")
-    if getattr(error, "errno", None) in {20, 21}:
+    if getattr(error, "errno", None) in {20, 21}:  # 20=ENOTDIR, 21=EISDIR
         return InvalidFilePathError("路径指向了错误的文件类型")
     return FileSystemOperationError("文件系统操作失败")
 
 
 def _is_windows_reserved(component: str) -> bool:
-    """拒绝 Windows 设备名、非法字符和尾随空格/点。"""
+    """拒绝 Windows 设备名、非法字符和尾随空格/点。
+
+    这是什么：Windows 保留名检测器
+    Java 类比：类似 validator.isWindowsReservedName(String)
+    为什么需要：防止创建 CON、NUL、COM1 等在 Windows 上无法操作的文件名
+    """
     if component.endswith((" ", ".")):
         return True
     if any(ord(char) < 32 or char in '<>:"|*?' for char in component):
@@ -47,7 +57,12 @@ def _is_windows_reserved(component: str) -> bool:
 
 
 def _relative_parts(value: str, label: str, allow_wildcards: bool = False) -> list[str]:
-    """把用户路径拆成安全相对组件；绝对路径和 `..` 永远拒绝。"""
+    """把用户路径拆成安全相对组件；绝对路径和 `..` 永远拒绝。
+
+    这是什么：路径安全解析器，将用户输入拆分为规范化的路径组件
+    Java 类比：类似 Path.of(value).normalize() 但拒绝绝对路径和父目录跳转
+    为什么需要：防止路径遍历攻击（如 ../../etc/passwd）和绝对路径逃逸工作区
+    """
     if not value:
         raise WorkspacePathError(f"{label} 不能为空")
     normalized = value.replace("\\", "/")
@@ -65,7 +80,12 @@ def _relative_parts(value: str, label: str, allow_wildcards: bool = False) -> li
 
 
 def _workspace_root(workspace: str) -> Path:
-    """取得工作区真实目录，并拒绝把文件当成工作区。"""
+    """取得工作区真实目录，并拒绝把文件当成工作区。
+
+    这是什么：工作区根目录解析器
+    Java 类比：类似 File.getCanonicalFile() 并检查 isDirectory()
+    为什么需要：确保工作区是一个真实存在的目录，而非文件或符号链接
+    """
     try:
         root = Path(workspace).resolve(strict=True)
     except OSError as error:
@@ -76,7 +96,12 @@ def _workspace_root(workspace: str) -> Path:
 
 
 def safe_path(workspace: str, relative_path: str) -> Path:
-    """解析工作区相对路径，并检查词法路径和真实路径都没有逃逸。"""
+    """解析工作区相对路径，并检查词法路径和真实路径都没有逃逸。
+
+    这是什么：安全路径解析器，防止符号链接逃逸
+    Java 类比：类似 workspace.resolve(relative).toRealPath() 并检查是否在边界内
+    为什么需要：即使词法路径合法，符号链接也可能指向工作区外，必须同时检查两种路径
+    """
     root = _workspace_root(workspace)
     parts = _relative_parts(relative_path, "路径")
     target = root.joinpath(*parts)
@@ -96,10 +121,20 @@ def safe_path(workspace: str, relative_path: str) -> Path:
 
 
 class LocalWorkspaceFileSystem(WorkspaceFileSystem):
-    """基于 pathlib 的真实工作区实现。"""
+    """基于 pathlib 的真实工作区实现。
+
+    这是什么：文件系统适配器的具体实现
+    Java 类比：类似 @Component class LocalFileSystemAdapter implements FileSystemPort
+    为什么需要：将 Python pathlib 的底层调用封装为领域接口，便于测试时替换为内存实现
+    """
 
     def is_path_within_workspace(self, workspace: str, relative_path: str) -> bool:
-        """供权限策略在写入前检查真实路径边界。"""
+        """供权限策略在写入前检查真实路径边界。
+
+        这是什么：路径边界检查器
+        Java 类比：类似 boolean isWithinBoundary(Path workspace, Path target)
+        为什么需要：权限系统在授权前需要快速判断路径是否合法，不能等到真正写入时才发现
+        """
         try:
             safe_path(workspace, relative_path)
             return True
@@ -107,7 +142,12 @@ class LocalWorkspaceFileSystem(WorkspaceFileSystem):
             return False
 
     def read_file(self, workspace: str, relative_path: str, limit: int | None = None) -> str:
-        """严格读取文本；超出 limit 时追加剩余行数提示。"""
+        """严格读取文本；超出 limit 时追加剩余行数提示。
+
+        这是什么：带行数限制的文件读取器
+        Java 类比：类似 Files.readString(path, UTF_8) 但会截断超长文件
+        为什么需要：防止模型一次性读取巨大文件导致上下文溢出，同时告知模型还有多少行未显示
+        """
         if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0):
             raise ValueError("limit 必须是正整数")
         try:
@@ -130,7 +170,12 @@ class LocalWorkspaceFileSystem(WorkspaceFileSystem):
         return "\n".join(lines)
 
     def write_file(self, workspace: str, relative_path: str, content: str) -> int:
-        """创建父目录后写入 UTF-8 字节，并返回字节数。"""
+        """创建父目录后写入 UTF-8 字节，并返回字节数。
+
+        这是什么：带自动创建目录的文件写入器
+        Java 类比：类似 Files.createDirectories(parent); Files.writeString(path, content, UTF_8)
+        为什么需要：工具层不应要求用户先手动创建目录，自动创建提升易用性
+        """
         try:
             target = safe_path(workspace, relative_path)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -143,7 +188,12 @@ class LocalWorkspaceFileSystem(WorkspaceFileSystem):
             raise _translate_os_error(error) from error
 
     def edit_file(self, workspace: str, relative_path: str, old_text: str, new_text: str) -> None:
-        """替换第一次精确文本；旧文本不存在时保证不写盘。"""
+        """替换第一次精确文本；旧文本不存在时保证不写盘。
+
+        这是什么：精确文本替换器
+        Java 类比：类似 String.replaceFirst(oldText, newText) 但操作文件内容
+        为什么需要：让模型能精确修改代码片段，不存在时拒绝写入可防止误操作
+        """
         if not old_text:
             raise ValueError("old_text 不能为空")
         target = safe_path(workspace, relative_path)
@@ -162,7 +212,12 @@ class LocalWorkspaceFileSystem(WorkspaceFileSystem):
             raise _translate_os_error(error) from error
 
     def glob_files(self, workspace: str, pattern: str) -> tuple[str, ...]:
-        """遍历工作区并返回稳定排序的 POSIX 风格相对路径。"""
+        """遍历工作区并返回稳定排序的 POSIX 风格相对路径。
+
+        这是什么：通配符文件搜索器
+        Java 类比：类似 Files.walk(path).filter(PathMatcher) 但返回规范化路径
+        为什么需要：让模型能搜索文件（如 "*.py"），同时防止符号链接逃逸工作区
+        """
         root = _workspace_root(workspace)
         parts = _relative_parts(pattern, "glob 模式", allow_wildcards=True)
         normalized = "/".join(parts) if parts else "."

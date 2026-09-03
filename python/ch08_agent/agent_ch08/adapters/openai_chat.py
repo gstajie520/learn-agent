@@ -16,6 +16,10 @@ from ..core.model import ModelClient, ModelReply, ModelRequest, TokenUsage
 class OpenAIResponseError(Exception):
     """供应商响应不符合 Chat Completions 契约。
 
+    这是什么：表示模型 API 返回了不符合预期格式的响应
+    Java 类比：类似 InvalidProviderResponseException 自定义异常
+    为什么需要：区分网络错误和数据格式错误，让调用方能针对性重试或降级处理
+
     Java 对照：类似 `InvalidProviderResponseException`，表示 HTTP 请求可能成功了，
     但响应内容的字段、角色或结束原因不符合本项目要求。
     """
@@ -24,10 +28,20 @@ class OpenAIResponseError(Exception):
 class OpenAIChatModel(ModelClient):
     """ModelClient 的真实 OpenAI 兼容实现。
 
+    这是什么：基于 OpenAI SDK 的模型客户端实现
+    Java 类比：类似 class OpenAiModelAdapter implements ModelClient
+    为什么需要：封装 OpenAI/DeepSeek API 调用细节，让核心循环不依赖具体供应商
+
     DeepSeek 实现了相同的 Chat Completions 协议，所以只需更换 base_url、key 和模型名。
     """
 
     def __init__(self, settings: OpenAISettings, client: Any | None = None) -> None:
+        """初始化模型客户端。
+
+        这是什么：构造器注入配置和可选的自定义客户端
+        Java 类比：类似 @Autowired 构造器，client 参数用于测试时注入 Mock
+        为什么需要：生产环境用真实 SDK，测试环境可传入 Fake 避免真实网络调用
+        """
         # client 可选是为了测试：生产环境创建真实 SDK，测试环境传入 FakeClient。
         self._client = client or OpenAI(
             api_key=settings.api_key, base_url=settings.base_url, max_retries=0
@@ -35,7 +49,12 @@ class OpenAIChatModel(ModelClient):
         self._model = settings.model  # 没有单次覆盖时默认使用的模型名称。
 
     def complete(self, request: ModelRequest) -> ModelReply:
-        """把内部请求转换成 SDK 请求，再把 SDK 响应转换回内部对象。"""
+        """把内部请求转换成 SDK 请求，再把 SDK 响应转换回内部对象。
+
+        这是什么：核心的模型调用方法，执行一次 Chat Completion 请求
+        Java 类比：类似 public ModelReply complete(ModelRequest req) throws IOException
+        为什么需要：实现 ModelClient 接口契约，完成内部格式与 OpenAI 格式的双向转换
+        """
 
         # 先在本地检查历史，避免用一份已损坏的消息浪费网络请求和 token。
         validate_tool_pairing(list(request.messages))
@@ -58,11 +77,15 @@ class OpenAIChatModel(ModelClient):
 
 
 def _to_openai_message(message: Any) -> dict[str, Any]:
-    """把内部 dataclass 消息转换成供应商要求的字典格式。
+    “””把内部 dataclass 消息转换成供应商要求的字典格式。
+
+    这是什么：将核心层的消息对象序列化为 OpenAI API 所需的 JSON 结构
+    Java 类比：类似 ChatMessageMapper.toDto(Message) 转换为第三方 SDK 的 DTO
+    为什么需要：隔离内部数据模型与外部 API 契约，避免核心层直接依赖供应商格式
 
     Java 对照：类似把内部 DTO 映射成第三方 SDK Request DTO。
-    函数名前面的单下划线表示“仅供本模块内部使用”，近似 Java 的 private 方法约定。
-    """
+    函数名前面的单下划线表示”仅供本模块内部使用”，近似 Java 的 private 方法约定。
+    “””
     if message.role in {"system", "user"}:
         return {"role": message.role, "content": message.content}
     if message.role == "tool":
@@ -82,6 +105,10 @@ def _to_openai_message(message: Any) -> dict[str, Any]:
 
 def _normalize_response(response: Any) -> ModelReply:
     """校验外部响应，并转换成核心层认识的 ModelReply。
+
+    这是什么：将 OpenAI SDK 返回的响应对象转换为内部的标准格式
+    Java 类比：类似 ResponseMapper.fromDto(OpenAiResponse) 并进行数据校验
+    为什么需要：外部 API 返回值属于不可信边界，必须校验后才能进入核心领域逻辑
 
     SDK 返回的数据属于不可信边界，就像 Controller 收到的外部请求一样，
     不能因为有类型提示就跳过运行时校验。

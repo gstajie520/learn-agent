@@ -1,4 +1,9 @@
-"""第二章内置工具：保留 shell，并增加四个工作区文件工具。"""
+"""第二章内置工具：保留 shell，并增加四个工作区文件工具。
+
+这是什么：定义 shell、文件读写等基础工具的模块
+Java 类比：类似 BuiltinToolsFactory，提供一组预定义的工具定义
+为什么需要：将常用的命令执行和文件操作封装为模型可调用的工具
+"""
 
 from collections.abc import Mapping
 from typing import Any
@@ -32,7 +37,12 @@ def _shell_args(value: Mapping[str, Any]) -> bool:
 
 
 def create_shell_tool(command_runner: CommandRunner) -> ToolDefinition:
-    """构造 shell 工具；它是第一章能力在第二章的原样保留。"""
+    """构造 shell 工具；它是第一章能力在第二章的原样保留。
+
+    这是什么：创建 shell 命令执行工具的工厂函数
+    Java 类比：类似 ToolDefinition createShellTool(CommandRunner runner)
+    为什么需要：将命令执行能力封装为工具，让模型能通过自然语言调用系统命令
+    """
 
     def handler(arguments: Mapping[str, Any], context: ToolContext) -> ToolResult:
         try:

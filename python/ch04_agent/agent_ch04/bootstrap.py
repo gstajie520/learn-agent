@@ -19,7 +19,12 @@ SYSTEM_PROMPT = "You are a coding agent. Use tools when needed, inspect their re
 
 
 def build_agent(profile: ChapterProfile, model: ModelClient, workspace: str, command_runner: CommandRunner | None = None, file_system: WorkspaceFileSystem | None = None, authorizer: ToolAuthorizer | None = None, approval_provider: ApprovalProvider | None = None, audit_sink: AuditSink | None = None, hooks: HookRegistry | None = None, max_turns: int = 20) -> AgentRunner:
-    """创建固定章节 Agent，并拒绝能力越级注入。"""
+    """创建固定章节 Agent，并拒绝能力越级注入。
+
+    这是什么：Agent 的工厂方法，根据章节配置组装不同能力的 Agent
+    Java 类比：类似 @Configuration 类中的 @Bean 方法，根据 profile 组装不同的依赖
+    为什么需要：让各章节能力递进清晰可测，防止越级使用未讲解的能力（如第 1 章注入 Hook）
+    """
     if profile is not P01 and profile is not P02 and profile is not P03 and profile is not P04:
         raise ValueError("必须传入固定的章节配置对象")
     if hooks is not None and profile is not P04:

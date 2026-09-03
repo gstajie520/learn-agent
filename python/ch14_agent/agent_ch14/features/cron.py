@@ -30,66 +30,114 @@ CRON_MARKER = re.compile(r"^[0-9*/,?-]+$")
 
 
 class CronError(Exception):
-    """Cron 领域异常，携带稳定机器可读错误码。"""
+    """Cron 领域异常，携带稳定机器可读错误码。
+
+    这是什么：Cron 模块的基础异常类
+    Java 类比：类似自定义的 CronException 基类，包含 error_code 字段
+    为什么需要：区分 Cron 领域错误和系统错误，携带机器可读的错误码
+    """
 
     def __init__(self, error_code: str, message: str) -> None:
         super().__init__(message)
-        self.error_code = error_code
+        self.error_code = error_code  # 机器可读的错误码，类似 Java 的枚举常量
 
 
 class CronExpressionError(CronError):
-    """表达式、时区或时间输入无效。"""
+    """表达式、时区或时间输入无效。
+
+    这是什么：Cron 表达式或时区参数校验失败的异常
+    Java 类比：类似 InvalidCronExpressionException
+    为什么需要：让调用方能精确识别是参数错误，而非存储或运行时错误
+    """
 
     def __init__(self, message: str) -> None:
         super().__init__("cron_expression_error", message)
 
 
 class CronStorageError(CronError):
-    """Cron 持久化或锁操作失败。"""
+    """Cron 持久化或锁操作失败。
+
+    这是什么：与 state.json 或 leader.lock 相关的 I/O 错误
+    Java 类比：类似 CronStorageException
+    为什么需要：区分业务参数错误和存储层故障
+    """
 
     def __init__(self, message: str) -> None:
         super().__init__("cron_storage_error", message)
 
 
 class CronJobNotFoundError(CronError):
-    """找不到指定的计划或事件。"""
+    """找不到指定的计划或事件。
+
+    这是什么：根据 job_id 查询时不存在的异常
+    Java 类比：类似 EntityNotFoundException
+    为什么需要：让调用方区分"参数错误"和"实体不存在"
+    """
 
     def __init__(self, message: str) -> None:
         super().__init__("cron_job_not_found", message)
 
 
 class CronClosedError(CronError):
-    """运行时关闭后继续调用。"""
+    """运行时关闭后继续调用。
+
+    这是什么：CronRuntime 已调用 close() 后继续使用的异常
+    Java 类比：类似 IllegalStateException("CronRuntime already closed")
+    为什么需要：防止关闭后的资源泄漏或不一致状态
+    """
 
     def __init__(self, message: str) -> None:
         super().__init__("cron_closed", message)
 
 
 def canonical_cron_id(value: str) -> str:
-    """校验 canonical UUID。"""
+    """校验 canonical UUID。
+
+    这是什么：校验 Cron job_id 或 event_id 是否为合法的 UUID 格式
+    Java 类比：类似 UUID.fromString(value) 会抛出 IllegalArgumentException
+    为什么需要：防止路径穿越和注入攻击，确保 ID 只包含安全字符
+    """
     if not isinstance(value, str) or UUID_RE.fullmatch(value) is None:
         raise CronStorageError("Cron id 必须是 canonical UUID")
     return value
 
 
 def validate_cron_timezone(value: str) -> str:
-    """校验 IANA 时区名称。"""
+    """校验 IANA 时区名称。
+
+    这是什么：校验时区字符串是否为合法的 IANA 时区（如 "Asia/Shanghai"）
+    Java 类比：类似 ZoneId.of(value) 会抛出 DateTimeException
+    为什么需要：避免无效时区导致 next_cron_occurrence 计算失败
+    """
     if not isinstance(value, str) or not value.strip():
         raise CronExpressionError("Cron 时区不能为空")
     normalized = value.strip()
     try:
-        ZoneInfo(normalized)
+        ZoneInfo(normalized)  # Python 的 ZoneInfo 类似 Java 的 ZoneId
     except ZoneInfoNotFoundError as error:
         raise CronExpressionError(f"未知 Cron 时区: {value}") from error
     return normalized
 
 
 def _parse_field(value: str, minimum: int, maximum: int) -> tuple[set[int], bool]:
-    """解析一个五段 Cron 字段，支持列表、范围、步进和星号。"""
-    result: set[int] = set()
-    wildcard = value == "*" or value.startswith("*/")
-    for item in value.split(","):
-        parts = item.split("/")
+    """解析一个五段 Cron 字段，支持列表、范围、步进和星号。
+
+    这是什么：解析 Cron 表达式的单个字段（如 "0,15,30,45" 或 "*/5" 或 "1-10"）
+    Java 类比：类似解析字符串返回 Set<Integer> 的工具方法
+    为什么需要：五段表达式的每段语法复杂，需要统一解析逻辑
+
+    参数：
+        value: 单个字段字符串（如 "0,15,30,45" 或 "*/5"）
+        minimum: 该字段允许的最小值（如分钟为 0）
+        maximum: 该字段允许的最大值（如分钟为 59）
+
+    返回：
+        tuple[set[int], bool]: (匹配的数值集合, 是否为通配符)
+    """
+    result: set[int] = set()  # set 类似 Java 的 HashSet
+    wildcard = value == "*" or value.startswith("*/")  # 是否包含通配符
+    for item in value.split(","):  # 支持逗号分隔的列表，如 "0,15,30,45"
+        parts = item.split("/")  # 支持步进，如 "*/5" 表示每 5 个单位
         if len(parts) > 2:
             raise CronExpressionError("Cron 步进格式无效")
         base, step_text = parts[0], parts[1] if len(parts) == 2 else None
@@ -99,9 +147,9 @@ def _parse_field(value: str, minimum: int, maximum: int) -> tuple[set[int], bool
             raise CronExpressionError("Cron 步进必须是整数") from error
         if step <= 0:
             raise CronExpressionError("Cron 步进必须大于 0")
-        if base == "*":
+        if base == "*":  # 星号表示全范围
             start, end = minimum, maximum
-        elif "-" in base:
+        elif "-" in base:  # 支持范围，如 "1-10"
             bounds = base.split("-")
             if len(bounds) != 2:
                 raise CronExpressionError("Cron 范围格式无效")
@@ -111,34 +159,46 @@ def _parse_field(value: str, minimum: int, maximum: int) -> tuple[set[int], bool
                 raise CronExpressionError("Cron 范围必须是整数") from error
             if start > end:
                 raise CronExpressionError("Cron 范围不能倒序")
-        else:
+        else:  # 单个数字
             try:
                 start = end = int(base)
             except ValueError as error:
                 raise CronExpressionError("Cron 字段必须是数字") from error
         if start < minimum or end > maximum:
             raise CronExpressionError("Cron 字段超出允许范围")
-        result.update(range(start, end + 1, step))
+        result.update(range(start, end + 1, step))  # range 类似 Java 的 IntStream.range
     if not result:
         raise CronExpressionError("Cron 字段不能为空")
     return result, wildcard
 
 
 def validate_cron_expression(value: str) -> str:
-    """严格验证五段 Cron 表达式，并返回归一化空格格式。"""
+    """严格验证五段 Cron 表达式，并返回归一化空格格式。
+
+    这是什么：校验 Cron 表达式是否合法，并归一化为标准格式
+    Java 类比：类似 CronExpression.parse(value) 返回规范化字符串
+    为什么需要：避免非法表达式导致匹配逻辑错误，统一存储格式
+
+    五段格式：分 时 日 月 周
+    - 分：0-59
+    - 时：0-23
+    - 日：1-31
+    - 月：1-12
+    - 周：0-7（0 和 7 都表示周日）
+    """
     if not isinstance(value, str) or not value.strip():
         raise CronExpressionError("Cron 表达式不能为空")
-    normalized = " ".join(value.strip().split())
+    normalized = " ".join(value.strip().split())  # 归一化多余空格为单个空格
     fields = normalized.split(" ")
-    if len(fields) != 5:
+    if len(fields) != 5:  # 严格要求五段，不支持六段（秒）或七段（年）
         raise CronExpressionError("Cron 表达式必须正好包含五段")
     if any(not CRON_MARKER.fullmatch(field) for field in fields):
         raise CronExpressionError("Cron 表达式包含不支持的字符")
-    _parse_field(fields[0], 0, 59)
-    _parse_field(fields[1], 0, 23)
-    _parse_field(fields[2], 1, 31)
-    _parse_field(fields[3], 1, 12)
-    _parse_field(fields[4], 0, 7)
+    _parse_field(fields[0], 0, 59)   # 分钟：0-59
+    _parse_field(fields[1], 0, 23)   # 小时：0-23
+    _parse_field(fields[2], 1, 31)   # 日期：1-31
+    _parse_field(fields[3], 1, 12)   # 月份：1-12
+    _parse_field(fields[4], 0, 7)    # 星期：0-7（0 和 7 都是周日）
     return normalized
 
 

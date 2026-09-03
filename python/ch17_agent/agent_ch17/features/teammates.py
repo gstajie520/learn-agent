@@ -35,7 +35,12 @@ TeammateStatus = Literal["running", "idle", "failed", "shutdown"]
 
 @dataclass(frozen=True, slots=True)
 class Teammate:
-    """对外暴露的队友状态快照。"""
+    """对外暴露的队友状态快照。
+
+    这是什么：队友的不可变状态视图，用于查询和监控
+    Java 类比：record Teammate(String name, String role, TeammateStatus status)
+    为什么需要：封装队友的只读信息，防止外部直接修改内部 _Worker 状态
+    """
 
     name: str  # 队友安全 slug，也是 mailbox recipient。
     role: str  # 队友职责描述，用于构造 system prompt。
@@ -44,7 +49,17 @@ class Teammate:
 
 @dataclass(slots=True)
 class _Worker:
-    """内部 worker 状态；runner 和 history 在整个生命周期内复用。"""
+    """内部 worker 状态；runner 和 history 在整个生命周期内复用。
+
+    这是什么：队友工作线程的可变内部状态
+    Java 类比：private static class WorkerState，包含 Thread、AgentRunner 等
+    为什么需要：封装每个队友的运行时状态，支持 mailbox 优先 + 空闲轮询
+
+    关键字段：
+    - runner：AgentRunner 实例，复用历史降低成本
+    - poll_wakeup：threading.Event 等待器，收到消息或 stop 时唤醒
+    - idle_polls：连续空闲扫描计数，达到上限后休眠
+    """
 
     teammate: Teammate
     runner: AgentRunner
@@ -61,7 +76,18 @@ RunnerFactory = Callable[[str, str, ToolDefinition], AgentRunner]
 
 
 class TeammateRuntime:
-    """管理持久队友、Mailbox 投递和 Lead 事件泵。"""
+    """管理持久队友、Mailbox 投递和 Lead 事件泵。
+
+    这是什么：队友生命周期管理器，类似 Java 的 WorkerService
+    Java 类比：@Service class TeammateService，管理线程池 + 消息队列
+    为什么需要：统一管理多个队友的启动、消息投递、空闲轮询和关闭
+
+    核心职责：
+    - 启动队友工作线程（start）
+    - 投递消息到队友 mailbox（send_message）
+    - 协调 mailbox 优先 + 空闲认领策略
+    - 停止和关闭所有队友（stop + close）
+    """
 
     def __init__(
         self,

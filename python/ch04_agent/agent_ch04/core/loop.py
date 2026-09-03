@@ -25,32 +25,62 @@ from .tools import PreparedToolCall, ToolContext, ToolRegistry, ToolResult, tool
 
 
 class AgentRunError(Exception):
-    """Agent 执行过程中的领域错误。"""
+    """Agent 执行过程中的领域错误。
+
+    这是什么：Agent 运行时错误的基类
+    Java 类比：类似 AgentExecutionException
+    为什么需要：标识 Agent 执行过程的领域异常，区别于配置错误或系统异常
+    """
 
 
 class AgentLimitError(AgentRunError):
-    """达到最大模型调用轮数。"""
+    """达到最大模型调用轮数。
+
+    这是什么：超出最大轮数限制的异常
+    Java 类比：类似 MaxIterationsExceededException
+    为什么需要：防止无限循环，确保 Agent 在有限轮次内完成任务或明确失败
+    """
 
 
 class IncompleteModelReplyError(AgentRunError):
-    """模型输出因 token 限制被截断。"""
+    """模型输出因 token 限制被截断。
+
+    这是什么：模型输出不完整的异常
+    Java 类比：类似 ResponseTruncatedException
+    为什么需要：明确标识输出截断问题，让调用方决定是否增加 token 限制或重试
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class ToolAuthorizationDecision:
-    """旧章节兼容授权结果：是否允许，以及给模型看的原因。"""
+    """旧章节兼容授权结果：是否允许，以及给模型看的原因。
+
+    这是什么：第一章授权决策的值对象（向后兼容）
+    Java 类比：类似 record AuthDecision(boolean allowed, String reason)
+    为什么需要：兼容第一章的简单授权接口，在第三章引入完整权限策略后仍可使用
+    """
     allowed: bool
     reason: str
 
 
 class ToolAuthorizer(Protocol):
-    """旧章节兼容授权接口，类似 Java 中的鉴权 Service。"""
+    """旧章节兼容授权接口，类似 Java 中的鉴权 Service。
+
+    这是什么：第一章授权器的协议定义（向后兼容）
+    Java 类比：类似 interface ToolAuthorizer { AuthDecision authorize(...); }
+    为什么需要：兼容第一章的授权方式，在第三章引入权限策略后仍可作为备选方案
+    """
     def authorize(self, prepared: PreparedToolCall, context: ToolContext) -> ToolAuthorizationDecision: ...
 
 
 @dataclass(frozen=True, slots=True)
 class RunResult:
-    """一次 Agent 运行结束后返回给调用方的不可变结果。"""
+    """一次 Agent 运行结束后返回给调用方的不可变结果。
+
+    这是什么：Agent 运行结果的值对象
+    Java 类比：类似 record RunResult(String finalText, List<ChatMessage> history, int turns)
+    为什么需要：封装运行结果，让调用方能获取最终回答、完整对话历史和实际轮数
+    """
     final_text: str
     history: tuple[ChatMessage, ...]
     turns: int
@@ -58,16 +88,32 @@ class RunResult:
 
 @dataclass(frozen=True, slots=True)
 class ToolExecution:
-    """一次工具链路的内部结果，不暴露给 AgentRunner 外部。"""
+    """一次工具链路的内部结果，不暴露给 AgentRunner 外部。
+
+    这是什么：工具执行链路的内部传递对象
+    Java 类比：类似 record ToolExecution(ToolResult result, List<ChatMessage> context, boolean preventCont)
+    为什么需要：在工具执行链路中传递结果和 Hook 追加的上下文，不暴露给外部调用方
+    """
     result: ToolResult
     additional_context: tuple[ChatMessage, ...] = ()
     prevent_continuation: bool = False
 
 
 class AgentRunner:
-    """在确定位置发布 Hook 事件的单会话状态机。"""
+    """在确定位置发布 Hook 事件的单会话状态机。
+
+    这是什么：带 Hook 生命周期的 Agent 核心循环
+    Java 类比：类似 @Service class AgentService { ... } 协调模型、工具、权限和 Hook
+    为什么需要：按固定顺序编排模型调用、Hook 回调、权限检查和工具执行，确保每个 tool_call_id 得到且仅得到一条 tool 消息
+    """
 
     def __init__(self, model: ModelClient, tools: ToolRegistry, system_prompt: str, workspace: str, max_turns: int = 20, identity: str = "user", authorizer: ToolAuthorizer | None = None, permission_policy: PermissionPolicy | None = None, hooks: HookRegistry | None = None) -> None:
+        """初始化 Agent 并校验必填参数。
+
+        这是什么：构造器，注入所有依赖并校验参数
+        Java 类比：类似 @Autowired 构造器注入，加参数校验
+        为什么需要：确保 Agent 启动时所有依赖就绪且参数合法，避免运行时才发现配置错误
+        """
         if max_turns <= 0:
             raise ValueError("max_turns 必须是正整数")
         if not identity.strip():
@@ -87,11 +133,21 @@ class AgentRunner:
 
     @property
     def history(self) -> tuple[ChatMessage, ...]:
-        """返回不可变历史副本，外部不能修改下一轮模型请求。"""
+        """返回不可变历史副本，外部不能修改下一轮模型请求。
+
+        这是什么：对话历史的只读访问器
+        Java 类比：类似 public List<ChatMessage> getHistory() { return List.copyOf(...); }
+        为什么需要：暴露历史给调用方查询，但返回不可变副本防止外部修改影响后续轮次
+        """
         return tuple(self._history)
 
     def run(self, prompt: str) -> RunResult:
-        """同步入口；内部用 asyncio 顺序等待同步或异步 Hook。"""
+        """同步入口；内部用 asyncio 顺序等待同步或异步 Hook。
+
+        这是什么：Agent 的同步运行入口
+        Java 类比：类似 public RunResult execute(String prompt) { ... }
+        为什么需要：提供同步接口给调用方，内部自动处理异步 Hook 的等待
+        """
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -99,6 +155,12 @@ class AgentRunner:
         raise AgentRunError("当前线程已有 asyncio 事件循环，请在同步入口外调用 AgentRunner.run")
 
     async def _run(self, prompt: str) -> RunResult:
+        """核心异步循环：UserPromptSubmit -> 模型调用 -> 工具执行/Stop Hook -> 完成。
+
+        这是什么：Agent 的核心异步运行逻辑
+        Java 类比：类似 private CompletableFuture<RunResult> executeLoop(String prompt)
+        为什么需要：实现完整的对话循环，按固定顺序触发 Hook、调用模型、执行工具，确保消息配对正确
+        """
         submitted = user_message(prompt)
         prompt_hook = await self._hooks.run_user_prompt(submitted)
         self._history.extend((submitted, *prompt_hook.additional_context))
@@ -152,7 +214,12 @@ class AgentRunner:
         raise AgentLimitError(f"Agent 已达到最大模型调用轮数 max_turns={self._max_turns}")
 
     async def _execute_tool(self, call: ToolCall, context: ToolContext, tools: ToolRegistry) -> ToolExecution:
-        """执行固定链路：prepare -> Pre -> permission -> handler -> Post。"""
+        """执行固定链路：prepare -> Pre -> permission -> handler -> Post。
+
+        这是什么：单个工具调用的完整执行链路
+        Java 类比：类似 private ToolExecution executeTool(ToolCall call, Context ctx)
+        为什么需要：按固定顺序执行工具准备、PreToolUse Hook、权限检查、实际执行、PostToolUse Hook，确保扩展点和权限控制正确介入
+        """
         try:
             prepared = tools.prepare(call)
         except Exception:  # noqa: BLE001
@@ -181,7 +248,12 @@ class AgentRunner:
         return ToolExecution(post_hook.updated_output or result, pre_hook.additional_context + post_hook.additional_context, post_hook.prevent_continuation)
 
     def _check_permission(self, prepared: PreparedToolCall, context: ToolContext, pre_hook: HookResult) -> ToolResult | None:
-        """把 Hook 建议交给第三章权限策略；Hook allow 不能绕过系统 deny。"""
+        """把 Hook 建议交给第三章权限策略；Hook allow 不能绕过系统 deny。
+
+        这是什么：权限检查的统一入口
+        Java 类比：类似 private Optional<ToolResult> checkPermission(PreparedToolCall call, Context ctx, HookResult hook)
+        为什么需要：统一处理第三章权限策略和第一章授权器，Hook 的权限建议作为输入但不能绕过系统级拒绝
+        """
         if self._permission_policy is not None:
             recommendations: tuple[PermissionDecision, ...] = ()
             if pre_hook.permission_behavior != "passthrough":
@@ -202,6 +274,11 @@ class AgentRunner:
         return None
 
     def _complete(self, final_text: str, turns: int) -> RunResult:
-        """完成前再次检查消息配对，并返回与内部列表隔离的快照。"""
+        """完成前再次检查消息配对，并返回与内部列表隔离的快照。
+
+        这是什么：运行完成时的结果封装方法
+        Java 类比：类似 private RunResult finish(String text, int turns)
+        为什么需要：最后一次校验消息配对完整性，返回不可变快照防止外部修改历史
+        """
         validate_tool_pairing(self._history)
         return RunResult(final_text, tuple(self._history), turns)

@@ -1,5 +1,9 @@
 ﻿"""组合根：把外部实现装配为第 3 章 Agent。
 
+这是什么：依赖注入容器，负责创建和连接各层对象。
+Java 类比：类似 Spring 的 @Configuration 类或 ApplicationContext。
+为什么需要：单一职责原则，装配逻辑和业务逻辑分离，便于测试时替换依赖。
+
 Java 对照：可以把本文件理解为 Spring 的 `@Configuration` 类。
 它负责创建对象和连接依赖，但不负责真正的 Agent 业务流程。
 """

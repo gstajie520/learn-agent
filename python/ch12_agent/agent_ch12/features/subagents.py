@@ -1,5 +1,15 @@
 """第六章一次性子 Agent 工具。
 
+这是什么：子 Agent 委派系统，父 Agent 可以委派独立任务给隔离的子 Agent
+Java 类比：类似 Spring 的 @Async 异步任务或微服务内部调用
+为什么需要：大任务拆分成子任务，每个子 Agent 有独立的消息历史和工具上下文
+
+核心机制：
+    1. 历史隔离：父子 Agent 消息历史完全独立，子 Agent 看不到父 Agent 的对话
+    2. Hook 共享：父子共享 HookRegistry 和 PermissionPolicy，子 Agent 仍受限
+    3. 工具隔离：每个子 Agent 有独立的 ToolRegistry，避免状态污染
+    4. 模型隔离：每次委派创建新的 ModelClient，避免会话状态复用
+
 Java 对照：`SubagentTool` 是一个外部调用适配器，类似应用服务里委派另一个
 `AgentService` 的 facade。它不复制循环，而是创建新的 `AgentRunner`；父子共享
 Hook、权限、workspace 和 identity，但消息历史、模型请求队列和工具注册表隔离。
@@ -35,6 +45,14 @@ DEFAULT_SUBAGENT_SYSTEM_PROMPT = (
 class ModelClientFactory(Protocol):
     """每次 task 调用创建一个独立模型边界。
 
+    这是什么：模型客户端工厂接口
+    Java 类比：类似 Supplier<ModelClient> 或工厂模式的 Factory interface
+    为什么需要：每个子任务使用独立的模型客户端，避免会话状态污染
+
+    使用场景：
+        - 测试时：为每个子任务准备独立的 Mock 回复队列
+        - 生产时：每次创建新的 HTTP 连接，不复用父 Agent 的会话
+
     Java 对照：类似 `Supplier<ModelClient>`。使用工厂而不是固定对象，测试时可以
     为每个子任务准备独立回复队列，真实运行时也不会复用上一次子任务的会话状态。
     """
@@ -45,6 +63,18 @@ class ModelClientFactory(Protocol):
 class ToolRegistryFactory(Protocol):
     """每次 task 调用创建独立工具表，也可以附带会话观察器。
 
+    这是什么：工具注册表工厂接口
+    Java 类比：类似 Supplier<ToolRegistry> 或 Supplier<Pair<ToolRegistry, Observer>>
+    为什么需要：每个子 Agent 有独立的工具上下文，避免 TODO 状态混淆
+
+    返回类型：
+        - ToolRegistry：只返回工具注册表
+        - tuple[ToolRegistry, ToolRoundObserver | None]：返回工具注册表 + 观察器
+
+    隔离原则：
+        父子 Agent 不能共用 TODO 状态（TodoTracker）
+        必须一起新建工具表和观察器，确保状态隔离
+
     返回 tuple 时，第一个元素是工具注册表，第二个元素是和该注册表配套的
     `TodoTracker` 等观察器。它们必须一起新建，不能让父子 Agent 共用 TODO 状态。
     """
@@ -53,15 +83,39 @@ class ToolRegistryFactory(Protocol):
 
 
 def _validate_task_input(value: Mapping[str, object]) -> bool:
-    """task 只接受一个非空 description 字段，拒绝未知字段。"""
+    """task 只接受一个非空 description 字段，拒绝未知字段。
+
+    这是什么：task 工具的参数校验函数
+    Java 类比：类似 Validator.validate() 或 JSON Schema 校验
+    为什么需要：确保模型只传入 description，不能伪造其他参数
+
+    合法输入：{"description": "非空字符串"}
+    非法输入：
+        - {"description": ""}（空字符串）
+        - {"description": "...", "extra": "..."}（多余字段）
+        - {"task": "..."}（字段名错误）
+    """
     description = value.get("description")
     return (
-        set(value) == {"description"} and isinstance(description, str) and bool(description.strip())
+        set(value) == {"description"}  # 只允许 description 字段，拒绝多余字段
+        and isinstance(description, str)  # description 必须是字符串
+        and bool(description.strip())  # description 不能是空字符串或纯空白
     )
 
 
 class SubagentTool:
     """把一个自包含描述委派给隔离的 AgentRunner，并只返回最终文本。
+
+    这是什么：task 工具的实现类，封装子 Agent 的创建和执行
+    Java 类比：类似 TaskExecutor 或 AsyncService
+    为什么需要：父 Agent 可以委派独立任务给子 Agent，减少主循环复杂度
+
+    隔离机制：
+        - 消息历史：父子完全独立，子 Agent 看不到父 Agent 的对话
+        - 工具上下文：每个子 Agent 有独立的 ToolRegistry 和 TodoTracker
+        - 模型客户端：每次委派创建新的 ModelClient
+        - Hook/权限：父子共享 HookRegistry 和 PermissionPolicy（子 Agent 仍受限）
+        - workspace/identity：父子共享（子 Agent 在同一工作区以同一身份执行）
 
     字段说明：
     - `_model_factory`：每次委派创建子模型客户端；
@@ -82,6 +136,20 @@ class SubagentTool:
         system_prompt: str = DEFAULT_SUBAGENT_SYSTEM_PROMPT,
         max_turns: int = DEFAULT_SUBAGENT_MAX_TURNS,
     ) -> None:
+        """初始化子 Agent 工具。
+
+        这是什么：构造函数，注入父 Agent 的共享依赖
+        Java 类比：类似 @Autowired 构造器注入
+        为什么需要：确保父子共享 Hook 和权限，但隔离消息历史和工具上下文
+
+        参数：
+            model_factory: 模型客户端工厂（每次创建新客户端）
+            tools_factory: 工具注册表工厂（每次创建新注册表）
+            hooks: 父子共享的 HookRegistry
+            permission_policy: 父子共享的权限策略
+            system_prompt: 子 Agent 的固定 system prompt（默认：专注单一任务）
+            max_turns: 子 Agent 最多调用模型轮数（默认 30，不可超过）
+        """
         if not callable(model_factory) or not callable(tools_factory):
             raise TypeError("model_factory 和 tools_factory 必须可调用")
         if not isinstance(hooks, HookRegistry):

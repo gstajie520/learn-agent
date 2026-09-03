@@ -1,5 +1,9 @@
 """OpenAI Chat Completions 适配器。
 
+这是什么：实现 ModelClient 接口，连接 OpenAI 兼容的 API
+Java 类比：@Service class OpenAIChatModel implements ModelClient
+为什么需要：适配 OpenAI 协议，将外部 SDK 响应转换为内部领域对象
+
 DeepSeek 等兼容 OpenAI 协议的服务也通过这里接入。外部 SDK 返回值先在本层
 校验，再转换成核心层的 ModelReply，避免脏数据进入 Agent Loop。
 """

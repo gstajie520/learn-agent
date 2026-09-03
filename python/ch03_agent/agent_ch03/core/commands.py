@@ -1,4 +1,9 @@
-﻿"""操作系统命令执行边界。"""
+﻿"""操作系统命令执行边界。
+
+这是什么：定义命令执行的统一接口和返回值。
+Java 类比：类似 ProcessExecutor interface 和 ProcessResult DTO。
+为什么需要：Agent 循环不应直接依赖 subprocess，这样可以用 Fake 隔离测试。
+"""
 
 from dataclasses import dataclass
 from typing import Protocol

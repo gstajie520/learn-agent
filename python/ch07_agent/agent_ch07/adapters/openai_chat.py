@@ -1,5 +1,17 @@
 """OpenAI Chat Completions 适配器。
 
+这是什么：
+    OpenAI Chat Completions API 的适配器，支持兼容协议的模型（如 DeepSeek）。
+
+Java 类比：
+    类似 Spring 的 RestTemplate 适配器 + DTO 映射层。
+
+为什么需要：
+    - 将 OpenAI SDK 的响应转换为核心层统一的 ModelReply
+    - 外部 SDK 返回值先在本层校验，再转换成核心层的 ModelReply
+    - 避免脏数据进入 Agent Loop，保证核心层的数据契约
+    - 支持 DeepSeek 等兼容 OpenAI 协议的服务
+
 DeepSeek 等兼容 OpenAI 协议的服务也通过这里接入。外部 SDK 返回值先在本层
 校验，再转换成核心层的 ModelReply，避免脏数据进入 Agent Loop。
 """
@@ -16,13 +28,35 @@ from ..core.model import ModelClient, ModelReply, ModelRequest, TokenUsage
 class OpenAIResponseError(Exception):
     """供应商响应不符合 Chat Completions 契约。
 
-    Java 对照：类似 `InvalidProviderResponseException`，表示 HTTP 请求可能成功了，
-    但响应内容的字段、角色或结束原因不符合本项目要求。
+    这是什么：
+        OpenAI API 响应格式错误时抛出的异常。
+
+    Java 类比：
+        class InvalidProviderResponseException extends RuntimeException
+        表示 HTTP 请求可能成功了，但响应内容的字段、角色或结束原因不符合本项目要求。
+
+    为什么需要：
+        - 区分网络错误（请求失败）和响应格式错误（请求成功但内容非法）
+        - 在适配器层拦截脏数据，避免进入核心循环
+        - 便于诊断是模型供应商的问题还是本地解析逻辑的问题
     """
 
 
 class OpenAIChatModel(ModelClient):
     """ModelClient 的真实 OpenAI 兼容实现。
+
+    这是什么：
+        实现 ModelClient 接口的 OpenAI 兼容模型适配器。
+
+    Java 类比：
+        class OpenAIChatModel implements ModelClient
+        类似适配器模式，将第三方 SDK 适配到内部接口。
+
+    为什么需要：
+        - DeepSeek 等兼容 OpenAI 协议的服务也通过这里接入
+        - 外部 SDK 返回值先在本层校验，再转换成核心层的 ModelReply
+        - 避免脏数据进入 Agent Loop，保证核心层的数据契约
+        - 实现依赖倒置：核心层定义接口，适配器层提供实现
 
     DeepSeek 实现了相同的 Chat Completions 协议，所以只需更换 base_url、key 和模型名。
     """

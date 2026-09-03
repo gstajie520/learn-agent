@@ -1,5 +1,9 @@
 ﻿"""OpenAI Chat Completions 适配器。
 
+这是什么：实现 ModelClient 接口，调用 OpenAI 兼容 API 并校验响应。
+Java 类比：类似 RestTemplate 或 Feign 客户端，封装 HTTP 调用和响应转换。
+为什么需要：核心层不依赖外部 SDK，适配器负责协议转换和响应校验。
+
 DeepSeek 等兼容 OpenAI 协议的服务也通过这里接入。外部 SDK 返回值先在本层
 校验，再转换成核心层的 ModelReply，避免脏数据进入 Agent Loop。
 """

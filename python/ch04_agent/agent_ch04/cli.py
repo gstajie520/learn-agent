@@ -14,8 +14,19 @@ from .core.profiles import P04
 
 
 class TerminalApprovalProvider:
-    """把策略产生的 ask 决策交给终端用户确认。"""
+    """把策略产生的 ask 决策交给终端用户确认。
+
+    这是什么：终端交互式权限审批器
+    Java 类比：类似 @Component class ConsoleApprovalService implements ApprovalProvider
+    为什么需要：权限策略决定需要人工审批时，通过终端交互让用户确认或拒绝工具调用
+    """
     def decide(self, request: PermissionRequest) -> PermissionDecision:
+        """在终端提示用户并等待输入。
+
+        这是什么：审批决策的实现方法
+        Java 类比：类似 public Decision promptUser(Request request)
+        为什么需要：实现 ApprovalProvider 接口，将权限请求转换为终端交互流程
+        """
         definition = request.prepared.definition
         proposed = request.proposed_decision
         if definition is None or proposed is None:
@@ -32,8 +43,19 @@ class TerminalApprovalProvider:
 
 
 class TerminalAuditSink:
-    """把最终权限决定写到 stderr，避免污染模型最终回答。"""
+    """把最终权限决定写到 stderr，避免污染模型最终回答。
+
+    这是什么：权限审计日志记录器
+    Java 类比：类似 @Component class StderrAuditLogger implements AuditSink
+    为什么需要：记录所有权限决策以供事后审查，输出到 stderr 避免混入模型的正常输出
+    """
     def record(self, request: PermissionRequest, decision: PermissionDecision) -> None:
+        """记录一次权限决策到标准错误流。
+
+        这是什么：审计记录的实现方法
+        Java 类比：类似 public void log(Request request, Decision decision)
+        为什么需要：实现 AuditSink 接口，满足合规和调试需求
+        """
         definition = request.prepared.definition
         if definition is None:
             raise ValueError("审计请求不完整")
@@ -41,7 +63,12 @@ class TerminalAuditSink:
 
 
 def terminal_hooks() -> HookRegistry:
-    """创建不改变业务结果的演示 Hook，只输出生命周期日志。"""
+    """创建不改变业务结果的演示 Hook，只输出生命周期日志。
+
+    这是什么：Hook 注册表工厂方法
+    Java 类比：类似 @Bean HookRegistry demoHooks() { ... }
+    为什么需要：为 CLI 环境提供可观测的生命周期事件日志，但不影响 Agent 实际行为
+    """
     hooks = HookRegistry()
     hooks.register("UserPromptSubmit", lambda context: _log_hook(context.event))
     hooks.register("PreToolUse", lambda context: _log_hook(context.event))
@@ -51,12 +78,23 @@ def terminal_hooks() -> HookRegistry:
 
 
 def _log_hook(event: str) -> HookResult:
+    """输出 Hook 事件到 stderr 并返回空结果。
+
+    这是什么：Hook 回调的日志实现
+    Java 类比：类似 private HookResult logEvent(String event)
+    为什么需要：提供简单的日志回调，演示 Hook 机制而不干预实际业务流程
+    """
     print(f"[Hook] 触发事件: {event}", file=sys.stderr)
     return HookResult()
 
 
 def main() -> int:
-    """解析参数、读取共享 `python/.env`、装配 P04 Agent 并运行。"""
+    """解析参数、读取共享 `python/.env`、装配 P04 Agent 并运行。
+
+    这是什么：CLI 主入口函数
+    Java 类比：类似 public static void main(String[] args)
+    为什么需要：组装第四章的完整能力（工具+权限+Hook），提供可执行的命令行界面
+    """
     parser = argparse.ArgumentParser(description="第四章 Agent Hook 生命周期")
     parser.add_argument("--prompt", required=True, help="交给 Agent 的任务")
     args = parser.parse_args()

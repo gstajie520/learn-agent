@@ -1,4 +1,9 @@
-﻿"""环境配置读取与校验。"""
+﻿"""环境配置读取与校验。
+
+这是什么：从环境变量或 .env 文件读取模型配置，并校验必填项。
+Java 类比：类似 Spring @ConfigurationProperties 和 @Validated。
+为什么需要：配置错误应该在启动时就发现，而不是运行时才报错，且不能提交密钥到 Git。
+"""
 
 import os
 from dataclasses import dataclass

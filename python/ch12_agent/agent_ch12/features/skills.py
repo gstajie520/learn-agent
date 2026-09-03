@@ -1,5 +1,15 @@
 """第七章按需加载 Skill。
 
+这是什么：Skill 按需加载系统，启动时只读 frontmatter，模型调用时才加载正文
+Java 类比：类似 Spring 的 @Lazy 注解或插件系统的延迟加载
+为什么需要：System Prompt 不会塞满所有技能说明，减少 token 消耗
+
+核心机制：
+    1. 启动扫描：只读取每个 SKILL.md 的 frontmatter（name + description）
+    2. 目录呈现：在 System Prompt 中列出技能名称和一行描述
+    3. 按需加载：模型调用 load_skill 工具时才读取完整正文
+    4. 路径安全：校验所有路径在 workspace 内，防止目录穿越攻击
+
 Java 对照：`SkillRegistry` 类似一个只读的配置/路由注册表。启动时只读取
 每个 `SKILL.md` 的 frontmatter，得到名称和描述；模型真正调用 `load_skill`
 时才读取正文。这样 System Prompt 不会在启动时塞入所有技能说明。
@@ -27,32 +37,71 @@ SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class SkillError(Exception):
-    """Skill 领域错误的共同父类。"""
+    """Skill 领域错误的共同父类。
+
+    这是什么：所有 Skill 相关错误的基类
+    Java 类比：类似 SkillException 业务异常
+    为什么需要：统一错误处理，区分 Skill 错误和其他系统错误
+    """
 
 
 class SkillPathError(SkillError):
-    """Skill 根目录、Skill 目录或 manifest 逃出了受控边界。"""
+    """Skill 根目录、Skill 目录或 manifest 逃出了受控边界。
+
+    这是什么：路径安全校验失败的异常
+    Java 类比：类似 PathTraversalException
+    为什么需要：防止恶意 Skill 名称（如 "../../etc"）逃逸 workspace
+    """
 
 
 class SkillManifestError(SkillError):
-    """SKILL.md 的 frontmatter 缺失、YAML 错误或字段不符合契约。"""
+    """SKILL.md 的 frontmatter 缺失、YAML 错误或字段不符合契约。
+
+    这是什么：Skill 元数据格式错误的异常
+    Java 类比：类似 InvalidManifestException
+    为什么需要：确保所有 Skill 都有合法的 name 和 description
+    """
 
 
 class DuplicateSkillError(SkillError):
-    """多个目录声明了同一个 Skill 名称。"""
+    """多个目录声明了同一个 Skill 名称。
+
+    这是什么：Skill 名称冲突的异常
+    Java 类比：类似 DuplicateBeanDefinitionException
+    为什么需要：Skill 名称必须唯一，否则 load_skill 无法路由
+    """
 
 
 class SkillNameError(SkillError):
-    """请求或 manifest 中的 Skill 名称不合法。"""
+    """请求或 manifest 中的 Skill 名称不合法。
+
+    这是什么：Skill 名称格式校验失败的异常
+    Java 类比：类似 IllegalArgumentException
+    为什么需要：只允许 kebab-case 名称（如 "my-skill"），拒绝路径字符
+    """
 
 
 class SkillNotFoundError(SkillError):
-    """名称格式正确，但当前注册表没有该 Skill。"""
+    """名称格式正确，但当前注册表没有该 Skill。
+
+    这是什么：Skill 不存在的异常
+    Java 类比：类似 NotFoundException
+    为什么需要：区分名称格式错误（SkillNameError）和名称不存在（SkillNotFoundError）
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class SkillSummary:
-    """公开给模型的目录条目，只包含路由所需的两项元数据。"""
+    """公开给模型的目录条目，只包含路由所需的两项元数据。
+
+    这是什么：Skill 的摘要信息（不含正文）
+    Java 类比：类似 SkillMetadata DTO
+    为什么需要：启动时只加载摘要，正文按需加载，减少内存和 token 消耗
+
+    字段说明：
+        name: 稳定的工具路由名称，也必须等于目录名
+        description: 一行路由说明，不包含 Skill 私有正文
+    """
 
     name: str  # 稳定的工具路由名称，也必须等于目录名。
     description: str  # 一行路由说明，不包含 Skill 私有正文。
@@ -60,7 +109,18 @@ class SkillSummary:
 
 @dataclass(frozen=True, slots=True)
 class _SkillRecord:
-    """注册表内部记录；路径保存逻辑入口，加载时会重新解析真实路径。"""
+    """注册表内部记录；路径保存逻辑入口，加载时会重新解析真实路径。
+
+    这是什么：Skill 的完整内部记录（包含路径信息）
+    Java 类比：类似 SkillRegistration 内部类
+    为什么需要：记录 Skill 目录和 manifest 的逻辑路径，加载时重新校验物理路径
+
+    字段说明：
+        summary: 扫描阶段校验过的名称和描述
+        directory_name: workspace/skills 下的目录名
+        directory_path: 逻辑目录入口，防止扫描后替换链接不被发现
+        manifest_path: 逻辑 SKILL.md 入口，加载时重新做 realpath 校验
+    """
 
     summary: SkillSummary  # 扫描阶段校验过的名称和描述。
     directory_name: str  # workspace/skills 下的目录名。
@@ -69,12 +129,22 @@ class _SkillRecord:
 
 
 def _validate_skill_name(name: str) -> None:
-    """校验名称到目录的映射，拒绝路径穿越和 Windows 设备名。"""
+    """校验名称到目录的映射，拒绝路径穿越和 Windows 设备名。
+
+    这是什么：Skill 名称的格式校验函数
+    Java 类比：类似 Validator.validateSkillName()
+    为什么需要：防止恶意名称（如 "../etc" 或 "CON"）破坏文件系统
+
+    合法格式：kebab-case（小写字母、数字、连字符）
+    示例：
+        - 合法："my-skill", "skill-123", "a"
+        - 非法："My-Skill"（大写）, "my_skill"（下划线）, "../etc"（路径）, "CON"（Windows 保留名）
+    """
     if (
         not isinstance(name, str)
         or not 1 <= len(name) <= MAX_SKILL_NAME_LENGTH
-        or SKILL_NAME_PATTERN.fullmatch(name) is None
-        or is_windows_reserved_component(name)
+        or SKILL_NAME_PATTERN.fullmatch(name) is None  # 必须匹配 ^[a-z0-9]+(?:-[a-z0-9]+)*$
+        or is_windows_reserved_component(name)  # 拒绝 CON, PRN, AUX 等 Windows 保留名
     ):
         raise SkillNameError(f"Skill 名称不合法: {name}")
 

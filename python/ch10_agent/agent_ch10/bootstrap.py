@@ -2,6 +2,11 @@
 
 Java 对照：这相当于 Spring `@Configuration`。它创建真实适配器、工具注册表、
 权限策略和 Hook 注册表，但不把业务流程写在对象创建代码里。
+
+第 10 章新增能力：
+    - 动态 System Prompt（DynamicPromptProvider + DynamicPromptRenderer）
+    - 每轮重新读取 tools、skills、memory 状态
+    - 固定 section 顺序：identity → tools → workspace → skills → memory
 """
 
 from collections.abc import Callable
@@ -98,16 +103,17 @@ def build_agent(
         else None
     )
     # 第九章把记忆实现成生命周期组件，而不是普通 Tool。这样模型只能通过
-    # 无工具 side-query 建议“选什么、记什么”，不能直接写 .memory 文件。
+    # 无工具 side-query 建议”选什么、记什么”，不能直接写 .memory 文件。
     memory_session: MemorySession | None = None
-    if "memory" in profile.capabilities:
+    if “memory” in profile.capabilities:
         memory_queries = ModelMemoryQueries(model)
         memory_session = MemorySession(
             MemoryStore(workspace),
             selector=memory_queries,
             extractor=memory_queries,
             consolidator=memory_queries,
-            emit_context_messages="dynamic_prompt" not in profile.capabilities,
+            # 第 10 章：有 dynamic_prompt 时不再通过消息注入记忆，而是放入 System Prompt
+            emit_context_messages=”dynamic_prompt” not in profile.capabilities,
         )
     if "subagent" in profile.capabilities:
         if policy is None:
@@ -134,29 +140,32 @@ def build_agent(
         prompt += "\n复杂任务请调用 todo_write 提交完整任务快照，并在计划变化时更新。"
     if skill_registry is not None:
         catalog = skill_registry.render_catalog()
+        # 第 10 章：有 dynamic_prompt 时 Skill 目录不再硬编码到静态 Prompt
         if "dynamic_prompt" not in profile.capabilities:
             prompt += "\n当前 workspace 可用的 Skill 目录（需要时调用 load_skill 加载正文）：\n"
             prompt += catalog if catalog else "(当前 workspace 没有可用的 Skill。)"
         tools.register(skill_registry.tool_definition)
+    # 第 10 章新增：动态 System Prompt Provider
+    # 当启用 dynamic_prompt 能力时，每轮重新读取 tools、skills、memory 状态
     system_prompt_provider = (
         DynamicPromptProvider(
-            DynamicPromptRenderer(),
-            identity=prompt,
-            tools=tools,
-            workspace=workspace,
-            context={"chapter": profile.chapter, "identity": "user"},
-            skills=skill_registry,
-            memory=memory_session,
+            DynamicPromptRenderer(),  # 无状态 Renderer，可复用
+            identity=prompt,  # 静态身份部分（包含 TODO 提示）
+            tools=tools,  # 引用传递：下一轮能读取新注册的工具
+            workspace=workspace,  # 工作目录路径
+            context={"chapter": profile.chapter, "identity": "user"},  # 额外上下文
+            skills=skill_registry,  # 引用传递：下一轮能读取新加载的 Skill
+            memory=memory_session,  # 引用传递：下一轮能读取新选中的记忆
         )
         if "dynamic_prompt" in profile.capabilities
-        else None
+        else None  # 旧章节兼容：不启用动态 Prompt
     )
     return AgentRunner(
         model,
         tools,
-        prompt,
+        prompt,  # 静态 Prompt（向下兼容，当 provider 为 None 时使用）
         workspace,
-        system_prompt_provider=system_prompt_provider,
+        system_prompt_provider=system_prompt_provider,  # 第 10 章：动态 Provider
         max_turns=max_turns,
         authorizer=authorizer,
         permission_policy=policy,

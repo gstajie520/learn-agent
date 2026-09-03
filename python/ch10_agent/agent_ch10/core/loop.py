@@ -85,7 +85,15 @@ class TurnLifecycle(Protocol):
 
 
 class SystemPromptProvider(Protocol):
-    """每轮模型请求前渲染 system prompt，类似 Java ``Supplier<String>``。"""
+    """每轮模型请求前渲染 system prompt，类似 Java ``Supplier<String>``。
+
+    这是什么：System Prompt 提供者接口（零参数）
+    Java 类比：类似 Supplier<String>，每次调用返回最新的 System Prompt
+    为什么需要：
+        1. 解耦 Loop 和 Prompt 组装逻辑
+        2. 支持动态 Prompt（每轮重新读取工具/记忆/Skill 状态）
+        3. 第 10 章新增：替代静态 system_prompt 字符串
+    """
 
     def render(self) -> str: ...
 
@@ -135,6 +143,33 @@ class AgentRunner:
         tool_result_processor: ToolResultProcessor | None = None,
         turn_lifecycle: TurnLifecycle | None = None,
     ) -> None:
+        """构造器注入所有依赖。
+
+        这是什么：依赖注入容器，类似 Spring 的构造器注入
+        Java 类比：@Autowired 构造器，接收所有服务依赖
+        为什么需要：AgentRunner 是应用服务，不负责创建依赖
+
+        参数：
+            model: 模型客户端（必需）
+            tools: 工具注册表（必需）
+            system_prompt: 静态 System Prompt（必需，向下兼容旧章节）
+            workspace: 工作目录（必需）
+            system_prompt_provider: 动态 Prompt 提供者（可选，第 10 章新增）
+            max_turns: 最大轮数（默认 20）
+            identity: 用户身份标识（默认 "user"）
+            authorizer: 旧章节兼容授权器（可选）
+            permission_policy: 权限策略（可选，第 3 章引入）
+            hooks: Hook 注册表（可选，第 4 章引入）
+            tool_round_observer: 工具轮观察器（可选）
+            history_processor: 历史处理器（可选，第 8 章引入）
+            tool_result_processor: 工具结果处理器（可选，第 8 章引入）
+            turn_lifecycle: 轮生命周期（可选）
+
+        第 10 章关键变化：
+            - system_prompt_provider 优先于 system_prompt
+            - 如果提供 provider，每轮调用 render() 获取最新 Prompt
+            - 如果未提供，回退到静态 system_prompt
+        """
         if max_turns <= 0:
             raise ValueError("max_turns 必须是正整数")
         if not identity.strip():
@@ -144,6 +179,7 @@ class AgentRunner:
         self._model = model
         self._tools = tools
         self._system_prompt = system_prompt
+        # 校验 provider 实现了 render() 方法
         if system_prompt_provider is not None and not callable(
             getattr(system_prompt_provider, "render", None)
         ):
@@ -210,7 +246,7 @@ class AgentRunner:
             validate_tool_pairing(list(turn_guidance))
             request = ModelRequest(
                 messages=(
-                    system_message(self._render_system_prompt()),
+                    system_message(self._render_system_prompt()),  # 第 10 章：动态渲染
                     *request_history,
                     *turn_guidance,
                     *observer_guidance,
@@ -280,10 +316,24 @@ class AgentRunner:
         raise AgentLimitError(f"Agent 已达到最大模型调用轮数 max_turns={self._max_turns}")
 
     def _render_system_prompt(self) -> str:
-        """读取动态 Provider，并拒绝空值，避免悄悄回退到过期 Prompt。"""
+        """读取动态 Provider，并拒绝空值，避免悄悄回退到过期 Prompt。
+
+        这是什么：System Prompt 获取逻辑，支持动态和静态两种模式
+        Java 类比：类似策略模式，优先使用动态策略，回退到静态值
+        为什么需要：
+            1. 第 10 章新增：优先调用 provider.render() 获取最新 Prompt
+            2. 向下兼容：provider 为 None 时回退到构造器传入的静态 system_prompt
+            3. 校验返回值非空，防止 provider 故障时悄悄使用过期 Prompt
+
+        返回：
+            完整的 system prompt 字符串
+
+        抛出：
+            AgentRunError: provider 返回空字符串或非字符串
+        """
         if self._system_prompt_provider is None:
-            return self._system_prompt
-        rendered = self._system_prompt_provider.render()
+            return self._system_prompt  # 旧章节兼容：使用静态 Prompt
+        rendered = self._system_prompt_provider.render()  # 第 10 章：动态渲染
         if not isinstance(rendered, str) or not rendered.strip():
             raise AgentRunError("动态 system prompt 必须是非空字符串")
         return rendered

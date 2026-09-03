@@ -3,6 +3,10 @@
 Java 对照：`HookRegistry` 类似一个按事件分组的观察者注册表，
 `HookContext` 和 `HookResult` 类似经过校验的不可变 DTO。回调只能声明影响，
 不能直接修改 Agent 循环，所以扩展逻辑不会重新变成一堆 if/else。
+
+这是什么：Hook 系统的核心实现，支持在关键生命周期点插入扩展逻辑
+Java 类比：类似 Spring 的事件监听器或 Servlet 的 Filter 链
+为什么需要：让扩展功能不侵入核心循环，通过声明式影响而非命令式修改
 """
 
 import inspect
@@ -22,19 +26,27 @@ from .messages import (
 from .permissions import PERMISSION_BEHAVIORS, PermissionBehavior
 from .tools import PreparedToolCall, ToolResult, copy_prepared_tool_call, copy_tool_result
 
+# Hook 事件类型：四个关键生命周期点
 HookEvent = Literal["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
 HOOK_EVENTS: tuple[HookEvent, ...] = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
 
 
 class HookContractError(Exception):
-    """Hook 输入、输出或事件字段违反契约时抛出的领域异常。"""
+    """Hook 输入、输出或事件字段违反契约时抛出的领域异常。
+
+    这是什么：Hook 契约校验失败的异常
+    Java 类比：类似 ContractViolationException 或自定义 HookException
+    为什么需要：确保 Hook 返回的数据符合规范，防止破坏循环稳定性
+    """
 
 
 def _is_event(value: object) -> bool:
+    """检查值是否是合法的 Hook 事件类型。"""
     return value in HOOK_EVENTS
 
 
 def _is_prepared(value: object) -> bool:
+    """检查值是否是准备完成的工具调用（无错误、有定义和参数）。"""
     return (
         isinstance(value, PreparedToolCall)
         and value.error is None
@@ -47,8 +59,21 @@ def _is_prepared(value: object) -> bool:
 class HookContext:
     """某次回调能看到的最小事件上下文。
 
-    Python 的 `None` 类似 Java 的 `null`，但这里不是任意字段都能为 None：
-    `__post_init__` 会根据事件强制检查字段归属，防止 Hook 读取错误阶段的数据。
+    这是什么：传递给 Hook 回调的上下文数据对象
+    Java 类比：类似 record HookContext(HookEvent event, Message message, ...)
+    为什么需要：根据不同事件类型，只暴露该阶段应该看到的数据
+
+    设计原则：
+        Python 的 `None` 类似 Java 的 `null`，但这里不是任意字段都能为 None：
+        `__post_init__` 会根据事件强制检查字段归属，防止 Hook 读取错误阶段的数据。
+
+    参数：
+        event: Hook 事件类型
+        message: 用户消息（仅 UserPromptSubmit 有值）
+        prepared: 准备好的工具调用（仅 PreToolUse 和 PostToolUse 有值）
+        result: 工具执行结果（仅 PostToolUse 有值）
+        history: 消息历史（仅 Stop 有值）
+        stop_hook_active: Stop Hook 是否已激活（仅 Stop 有值）
     """
 
     event: HookEvent
@@ -59,16 +84,25 @@ class HookContext:
     stop_hook_active: bool = False
 
     def __post_init__(self) -> None:
+        """创建后立即校验字段组合的合法性，确保不同事件只能访问对应的字段。"""
+        # 校验事件类型
         if not _is_event(self.event):
             raise HookContractError("event 必须是受支持的 HookEvent")
+
+        # 校验历史消息类型
         if not isinstance(self.history, tuple) or not all(
             isinstance(item, (SystemMessage, AssistantMessage, UserMessage, ToolMessage))
             for item in self.history
         ):
             raise HookContractError(f"{self.event} history 必须全部是合法消息")
+
+        # 校验 stop_hook_active 类型
         if not isinstance(self.stop_hook_active, bool):
             raise HookContractError("stop_hook_active 必须是 bool")
+
+        # 按事件类型校验字段组合
         if self.event == "UserPromptSubmit":
+            # 用户提交事件：只能有 message 字段
             if not isinstance(self.message, UserMessage):
                 raise HookContractError("UserPromptSubmit 需要 user message")
             if (
@@ -78,7 +112,9 @@ class HookContext:
                 or self.stop_hook_active
             ):
                 raise HookContractError("UserPromptSubmit 收到了其他事件的字段")
+
         elif self.event == "PreToolUse":
+            # 工具执行前事件：只能有 prepared 字段
             if not _is_prepared(self.prepared):
                 raise HookContractError("PreToolUse 需要有效的 prepared tool call")
             if (
@@ -88,12 +124,16 @@ class HookContext:
                 or self.stop_hook_active
             ):
                 raise HookContractError("PreToolUse 收到了其他事件的字段")
+
         elif self.event == "PostToolUse":
+            # 工具执行后事件：只能有 prepared 和 result 字段
             if not _is_prepared(self.prepared) or not isinstance(self.result, ToolResult):
                 raise HookContractError("PostToolUse 需要 prepared tool call 和 tool result")
             if self.message is not None or self.history or self.stop_hook_active:
                 raise HookContractError("PostToolUse 收到了其他事件的字段")
+
         elif self.message is not None or self.prepared is not None or self.result is not None:
+            # Stop 事件：只能有 history 和 stop_hook_active 字段
             raise HookContractError("Stop 收到了其他事件的字段")
 
 
@@ -101,9 +141,23 @@ class HookContext:
 class HookResult:
     """回调对循环提出的结构化影响。
 
-    `additional_context` 只能是 system 消息，`force_continue` 只能是 user 消息；
-    这样 Hook 无法伪造 assistant/tool 配对。所有返回值都复制成新对象，
-    对应 Java 中从外部 DTO 转换成内部不可变值对象。
+    这是什么：Hook 回调的返回值对象
+    Java 类比：类似 record HookResult(PermissionBehavior behavior, ...)
+    为什么需要：声明式地表达 Hook 想要的影响，而不是直接修改循环状态
+
+    设计原则：
+        - `additional_context` 只能是 system 消息，`force_continue` 只能是 user 消息
+        - 这样 Hook 无法伪造 assistant/tool 配对
+        - 所有返回值都复制成新对象，对应 Java 中从外部 DTO 转换成内部不可变值对象
+
+    参数：
+        permission_behavior: 权限行为建议（allow/deny/ask/passthrough）
+        updated_input: 更新后的工具输入（PreToolUse 可用）
+        updated_output: 更新后的工具输出（PostToolUse 可用）
+        additional_context: 额外的系统消息（只能是 system 消息）
+        blocking_error: 阻断性错误（PreToolUse 可用）
+        prevent_continuation: 是否阻止继续执行后续工具（PostToolUse 可用）
+        force_continue: 强制继续循环的用户消息（Stop 可用）
     """
 
     permission_behavior: PermissionBehavior = "passthrough"
@@ -115,24 +169,41 @@ class HookResult:
     force_continue: UserMessage | None = None
 
     def __post_init__(self) -> None:
+        """创建后立即校验并深拷贝字段，确保 Hook 无法持有循环内部对象的引用。"""
+        # 校验权限行为
         if self.permission_behavior not in PERMISSION_BEHAVIORS:
             raise HookContractError("permission_behavior 必须是受支持的权限行为")
+
+        # 校验更新后的输入
         if self.updated_input is not None and not _is_prepared(self.updated_input):
             raise HookContractError("updated_input 必须是有效的 prepared tool call")
+
+        # 校验更新后的输出
         if self.updated_output is not None and not isinstance(self.updated_output, ToolResult):
             raise HookContractError("updated_output 必须是 ToolResult")
+
+        # 校验阻断性错误
         if self.blocking_error is not None and (
             not isinstance(self.blocking_error, ToolResult) or not self.blocking_error.is_error
         ):
             raise HookContractError("blocking_error 必须是错误 ToolResult")
+
+        # 校验额外上下文（只能是 system 消息）
         if not isinstance(self.additional_context, tuple) or not all(
             isinstance(item, SystemMessage) for item in self.additional_context
         ):
             raise HookContractError("additional_context 只能包含 system 消息")
+
+        # 校验阻止继续标志
         if not isinstance(self.prevent_continuation, bool):
             raise HookContractError("prevent_continuation 必须是 bool")
+
+        # 校验强制继续消息
         if self.force_continue is not None and not isinstance(self.force_continue, UserMessage):
             raise HookContractError("force_continue 必须是 user 消息")
+
+        # 深拷贝所有可变字段，切断 Hook 对内部对象的引用
+        # 使用 object.__setattr__ 因为 dataclass frozen=True
         object.__setattr__(
             self,
             "updated_input",
@@ -143,6 +214,7 @@ class HookResult:
             "updated_output",
             None if self.updated_output is None else copy_tool_result(self.updated_output),
         )
+        # 重新构建 additional_context，确保消息对象是新的
         object.__setattr__(
             self,
             "additional_context",

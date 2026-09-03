@@ -1,5 +1,9 @@
 """固定章节能力快照。
 
+这是什么：定义每个章节的能力配置
+Java 类比：record ChapterProfile(int chapter, Set<Capability> capabilities)
+为什么需要：确保每个章节只启用对应的功能，防止跨章节能力混用
+
 Java 对照：`ChapterProfile` 类似不可变配置 record，P01-P06 类似预定义单例常量。
 组合根使用对象身份判断，调用方不能临时拼一个同字段对象来冒充正式章节。
 """

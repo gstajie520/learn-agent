@@ -40,7 +40,12 @@ def build_agent(
     max_turns: int = 20,
     subagent_model_factory: Callable[[], ModelClient] | None = None,
 ) -> AgentRunner:
-    """创建固定章节 Agent，并拒绝能力越级注入。"""
+    """创建固定章节 Agent，并拒绝能力越级注入。
+
+    这是什么：组合根函数，按章节配置组装 Agent 及其依赖
+    Java 类比：类似 @Bean AgentRunner buildAgent(...) 的 Spring 配置方法
+    为什么需要：将所有依赖注入逻辑集中在一处，避免在业务代码中散布对象创建逻辑
+    """
     if (
         profile is not P01
         and profile is not P02
@@ -98,7 +103,12 @@ def build_agent(
             raise ValueError("subagent capability 需要权限策略")
 
         def child_tools_factory() -> tuple[ToolRegistry, TodoTracker]:
-            """为每个子 Agent 创建独立工具表和独立 TODO 状态。"""
+            """为每个子 Agent 创建独立工具表和独立 TODO 状态。
+
+            这是什么：子 Agent 工具注册表的工厂函数
+            Java 类比：类似 Supplier<Pair<ToolRegistry, TodoTracker>> 的工厂方法
+            为什么需要：每个子 Agent 需要独立的工具实例，避免状态共享导致并发问题
+            """
             child_tools = create_chapter_two_tools(command, actual_file_system)
             child_todo = TodoTracker()
             child_tools.register(child_todo.tool_definition)

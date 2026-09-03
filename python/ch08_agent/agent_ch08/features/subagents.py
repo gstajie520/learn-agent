@@ -1,5 +1,9 @@
 """第六章一次性子 Agent 工具。
 
+这是什么：实现父 Agent 委派任务给隔离子 Agent 的模块
+Java 类比：类似 SubagentService，创建独立的 AgentRunner 处理子任务
+为什么需要：让 Agent 能将复杂任务拆分给子 Agent，避免主循环陷入细节
+
 Java 对照：`SubagentTool` 是一个外部调用适配器，类似应用服务里委派另一个
 `AgentService` 的 facade。它不复制循环，而是创建新的 `AgentRunner`；父子共享
 Hook、权限、workspace 和 identity，但消息历史、模型请求队列和工具注册表隔离。
@@ -35,6 +39,10 @@ DEFAULT_SUBAGENT_SYSTEM_PROMPT = (
 class ModelClientFactory(Protocol):
     """每次 task 调用创建一个独立模型边界。
 
+    这是什么：用于创建模型客户端的工厂接口
+    Java 类比：类似 Supplier<ModelClient> 函数式接口
+    为什么需要：确保每个子 Agent 有独立的模型会话，避免状态混淆
+
     Java 对照：类似 `Supplier<ModelClient>`。使用工厂而不是固定对象，测试时可以
     为每个子任务准备独立回复队列，真实运行时也不会复用上一次子任务的会话状态。
     """
@@ -45,6 +53,10 @@ class ModelClientFactory(Protocol):
 class ToolRegistryFactory(Protocol):
     """每次 task 调用创建独立工具表，也可以附带会话观察器。
 
+    这是什么：用于创建工具注册表和观察器的工厂接口
+    Java 类比：类似 Supplier<Pair<ToolRegistry, Observer>> 函数式接口
+    为什么需要：子 Agent 需要独立的工具集和状态，不能与父 Agent 共享 TODO 等状态
+
     返回 tuple 时，第一个元素是工具注册表，第二个元素是和该注册表配套的
     `TodoTracker` 等观察器。它们必须一起新建，不能让父子 Agent 共用 TODO 状态。
     """
@@ -53,7 +65,12 @@ class ToolRegistryFactory(Protocol):
 
 
 def _validate_task_input(value: Mapping[str, object]) -> bool:
-    """task 只接受一个非空 description 字段，拒绝未知字段。"""
+    """task 只接受一个非空 description 字段，拒绝未知字段。
+
+    这是什么：校验 task 工具参数格式的函数
+    Java 类比：类似 boolean validateTaskInput(Map<String, Object> args)
+    为什么需要：确保委派任务时参数格式正确，防止注入攻击或格式错误
+    """
     description = value.get("description")
     return (
         set(value) == {"description"} and isinstance(description, str) and bool(description.strip())
@@ -62,6 +79,10 @@ def _validate_task_input(value: Mapping[str, object]) -> bool:
 
 class SubagentTool:
     """把一个自包含描述委派给隔离的 AgentRunner，并只返回最终文本。
+
+    这是什么：封装子 Agent 创建和执行逻辑的工具类
+    Java 类比：类似 class SubagentService { AgentRunner execute(String task) }
+    为什么需要：将任务委派给独立的子 Agent，隔离状态并限制执行范围
 
     字段说明：
     - `_model_factory`：每次委派创建子模型客户端；

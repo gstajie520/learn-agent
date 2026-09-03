@@ -1,5 +1,17 @@
 """PowerShell 进程适配器。
 
+这是什么：
+    PowerShell 命令执行的适配器，封装 subprocess 的底层细节。
+
+Java 类比：
+    类似 Java 中的 ProcessBuilder 适配器：负责 cwd、超时、stdout/stderr
+    收集和输出上限，核心 Agent 不直接接触 subprocess。
+
+为什么需要：
+    - 隔离操作系统 API，核心层通过 CommandRunner 接口调用
+    - 统一处理超时、输出截断、UTF-8 编码问题
+    - 测试时可以注入 Fake，不需要真正启动 PowerShell 进程
+
 这层相当于 Java 中的 ProcessBuilder 适配器：负责 cwd、超时、stdout/stderr
 收集和输出上限，核心 Agent 不直接接触 subprocess。
 """
@@ -13,6 +25,19 @@ from ..core.commands import CommandResult, CommandRunner
 @dataclass(frozen=True, slots=True)
 class PowerShellRunner(CommandRunner):
     """CommandRunner 的真实 Windows 实现。
+
+    这是什么：
+        实现 CommandRunner 接口的 PowerShell 进程适配器。
+
+    Java 类比：
+        class PowerShellRunner implements CommandRunner
+        类似 ProcessBuilder 的封装实现。
+
+    为什么需要：
+        - 隔离 subprocess 细节，核心层不直接依赖操作系统 API
+        - 统一处理超时、输出截断、UTF-8 编码和退出码
+        - 测试时可以用 Fake 替换，不需要真正启动进程
+        - dataclass 自动生成构造方法，下面三个字段就是构造参数和成员变量
 
     Java 对照：这相当于一个内部使用 `ProcessBuilder` 的实现类。
     dataclass 自动生成构造方法，下面三个字段就是构造参数和成员变量。

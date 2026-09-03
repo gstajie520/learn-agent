@@ -1,5 +1,9 @@
 """第四章 Hook 生命周期。
 
+这是什么：Hook 系统的核心实现，提供生命周期事件的发布和订阅
+Java 类比：类似 Spring 的 ApplicationEventPublisher + @EventListener
+为什么需要：让扩展逻辑以声明式方式介入 Agent 流程，而非在循环中散布 if/else
+
 Java 对照：`HookRegistry` 类似一个按事件分组的观察者注册表，
 `HookContext` 和 `HookResult` 类似经过校验的不可变 DTO。回调只能声明影响，
 不能直接修改 Agent 循环，所以扩展逻辑不会重新变成一堆 if/else。
@@ -22,19 +26,36 @@ from .messages import (
 from .permissions import PERMISSION_BEHAVIORS, PermissionBehavior
 from .tools import PreparedToolCall, ToolResult, copy_prepared_tool_call, copy_tool_result
 
-HookEvent = Literal["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
+HookEvent = Literal["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]  # 四个生命周期事件
 HOOK_EVENTS: tuple[HookEvent, ...] = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
 
 
 class HookContractError(Exception):
-    """Hook 输入、输出或事件字段违反契约时抛出的领域异常。"""
+    """Hook 输入、输出或事件字段违反契约时抛出的领域异常。
+
+    这是什么：Hook 契约违反的专用异常
+    Java 类比：类似 IllegalStateException 或 ContractViolationException
+    为什么需要：区分 Hook 使用错误和业务逻辑错误，快速定位扩展点问题
+    """
 
 
 def _is_event(value: object) -> bool:
+    """校验事件名称是否合法。
+
+    这是什么：事件类型校验函数
+    Java 类比：类似枚举的 valueOf 校验
+    为什么需要：确保注册的 Hook 事件名称在预定义范围内
+    """
     return value in HOOK_EVENTS
 
 
 def _is_prepared(value: object) -> bool:
+    """校验工具调用对象是否已准备完成（无错误、有定义、有参数）。
+
+    这是什么：工具调用对象完整性校验
+    Java 类比：类似 @Valid + 自定义校验器
+    为什么需要：确保 Hook 收到的是完整准备好的工具调用，而非错误状态
+    """
     return (
         isinstance(value, PreparedToolCall)
         and value.error is None
@@ -46,6 +67,10 @@ def _is_prepared(value: object) -> bool:
 @dataclass(frozen=True, slots=True)
 class HookContext:
     """某次回调能看到的最小事件上下文。
+
+    这是什么：传递给 Hook 回调函数的上下文对象
+    Java 类比：record HookContext(HookEvent event, ChatMessage message, ...)
+    为什么需要：封装事件相关的只读数据，确保 Hook 只能读取而不能修改原始状态
 
     Python 的 `None` 类似 Java 的 `null`，但这里不是任意字段都能为 None：
     `__post_init__` 会根据事件强制检查字段归属，防止 Hook 读取错误阶段的数据。

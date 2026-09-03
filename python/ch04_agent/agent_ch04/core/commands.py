@@ -8,7 +8,9 @@ from typing import Protocol
 class CommandResult:
     """操作系统命令执行后的统一结果。
 
-    不直接返回 subprocess 对象，是为了让核心层不依赖具体操作系统 API。
+    这是什么：命令执行结果的值对象
+    Java 类比：类似 record CommandResult(String output, int exitCode, boolean timedOut, boolean truncated)
+    为什么需要：将 subprocess 的底层返回值封装为领域对象，让核心层不依赖操作系统 API
     """
     output: str  # stdout 和 stderr 合并后的文本。
     exit_code: int  # 进程退出码，通常 0 表示成功。
@@ -19,9 +21,15 @@ class CommandResult:
 class CommandRunner(Protocol):
     """命令执行接口；真实实现和测试 Fake 都遵守它。
 
-    Java 对照：这就是一个只有一个核心方法的 `interface`。AgentRunner
-    只依赖这个接口，因此测试时可以传入不会真正启动 PowerShell 的 Fake。
+    这是什么：命令执行器的协议定义
+    Java 类比：类似 interface CommandRunner { CommandResult run(...); }
+    为什么需要：让核心层只依赖接口而非具体实现，测试时可注入不启动真实进程的 Fake
     """
 
     def run(self, command: str, cwd: str, timeout_ms: int | None = None) -> CommandResult:
-        """在受控工作目录中执行一条命令，并返回与操作系统无关的结果对象。"""
+        """在受控工作目录中执行一条命令，并返回与操作系统无关的结果对象。
+
+        这是什么：命令执行的抽象方法
+        Java 类比：类似接口中的 CommandResult execute(String cmd, String workDir, Integer timeout)
+        为什么需要：定义统一契约，屏蔽 Windows/Linux 差异和 subprocess 细节
+        """

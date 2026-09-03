@@ -56,6 +56,10 @@ class TaskLeaseExpiredError(TaskClaimError):
 class TaskClaim:
     """一次成功认领的不可变结果。
 
+    这是什么：认领任务后返回的凭证对象，包含任务、令牌和租约
+    Java 类比：record TaskClaim(Task task, UUID token, Instant expiresAt)
+    为什么需要：封装认领成功的三个关键信息，后续完成任务时必须提供 claim_token
+
     字段说明：
         ``task``：已经进入 in_progress 的任务快照。
         ``claim_token``：完成权限证明；旧 token 不能完成重新认领后的任务。
@@ -70,7 +74,12 @@ class TaskClaim:
 
 
 class LeasedTaskStore(Protocol):
-    """带租约的任务仓库接口，类似 Java Repository interface。"""
+    """带租约的任务仓库接口，类似 Java Repository interface。
+
+    这是什么：定义任务认领仓储的契约，SQLite 是它的一个实现
+    Java 类比：interface TaskRepository<Task, String>
+    为什么需要：让核心逻辑不依赖具体存储（SQLite/Redis/Postgres），便于测试和替换
+    """
 
     def create_task(self, value: CreateTaskInput) -> Task:
         """创建一个带显式依赖的持久任务。"""
@@ -111,7 +120,17 @@ class TaskClaimService(Protocol):
 
 
 class DirectTaskClaimService:
-    """不保存额外状态的默认任务认领 Service。"""
+    """不保存额外状态的默认任务认领 Service。
+
+    这是什么：领域服务层，封装身份绑定和权限校验逻辑
+    Java 类比：@Service class TaskClaimService，依赖注入 TaskRepository
+    为什么需要：隔离 ToolContext.identity 提取逻辑，防止模型伪造 owner 参数
+
+    关键职责：
+    - 从 ToolContext.identity 提取可信身份作为 owner
+    - 转发认领和完成请求到仓储层
+    - 确保 owner + claim_token 双重校验
+    """
 
     def __init__(self, store: LeasedTaskStore) -> None:
         """只保存组合根提供的共享 Repository 引用。"""

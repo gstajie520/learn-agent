@@ -1,4 +1,8 @@
-"""第八章：上下文压缩与大工具结果归档。
+“””第八章：上下文压缩与大工具结果归档。
+
+这是什么：实现消息历史压缩和大结果归档的模块
+Java 类比：类似 CompactionService + ArtifactStore 的组合
+为什么需要：当对话历史超过模型上下文限制时，智能压缩旧消息并归档大结果
 
 Java 对照：
     - ``CompactionManager`` 类似一个 Spring Service，负责把完整会话转换成
@@ -7,9 +11,9 @@ Java 对照：
     - ``MessageGroup`` 类似一个不可拆分的事务边界：assistant 的 tool call 和对应的
       tool result 必须一起保留，否则 OpenAI 消息协议会失配。
 
-这一章故意使用 UTF-8 字节数，而不是“Python 字符串长度”。中文一个字符通常占 3 个
+这一章故意使用 UTF-8 字节数，而不是”Python 字符串长度”。中文一个字符通常占 3 个
 字节，直接使用 ``len(text)`` 会低估上下文大小。
-"""
+“””
 
 from __future__ import annotations
 
@@ -47,19 +51,39 @@ _ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class CompactionError(Exception):
-    """压缩流程的公共异常基类。"""
+    """压缩流程的公共异常基类。
+
+    这是什么：表示上下文压缩过程中的错误
+    Java 类比：类似 CompactionException extends RuntimeException
+    为什么需要：统一所有压缩相关异常的父类，便于调用方统一捕获处理
+    """
 
 
 class ArtifactPathError(CompactionError):
-    """归档目录或归档 ID 不安全。"""
+    """归档目录或归档 ID 不安全。
+
+    这是什么：表示归档路径格式非法或包含危险字符
+    Java 类比：类似 InvalidArtifactPathException extends CompactionException
+    为什么需要：防止路径注入攻击，确保归档文件只能写在安全的位置
+    """
 
 
 class ArtifactConflictError(CompactionError):
-    """归档文件已经存在，拒绝覆盖旧数据。"""
+    """归档文件已经存在，拒绝覆盖旧数据。
+
+    这是什么：表示尝试创建已存在的归档文件
+    Java 类比：类似 ArtifactAlreadyExistsException extends CompactionException
+    为什么需要：避免意外覆盖已有归档，保护历史数据不被破坏
+    """
 
 
 class PromptTooLongRetryError(CompactionError):
-    """同一轮 prompt-too-long 恢复窗口内不允许重复压缩。"""
+    """同一轮 prompt-too-long 恢复窗口内不允许重复压缩。
+
+    这是什么：表示在一次模型调用中尝试多次压缩仍超长
+    Java 类比：类似 CompactionRetryLimitExceededException extends CompactionException
+    为什么需要：防止无限压缩循环，当压缩后仍超长时应报错而非继续尝试
+    """
 
 
 @dataclass(frozen=True, slots=True)

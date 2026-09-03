@@ -24,11 +24,22 @@ from ..core.tools import (
 
 
 def _shell_args(value: Mapping[str, Any]) -> bool:
+    """校验 shell 工具参数：只允许 command 字段且必须非空。
+
+    这是什么：shell 工具的参数校验器
+    Java 类比：类似 boolean validateShellArgs(Map<String, Object> args)
+    为什么需要：在 JSON Schema 之外增加严格校验，确保只有 command 字段且值为非空字符串
+    """
     return set(value) == {"command"} and isinstance(value.get("command"), str) and bool(value["command"])
 
 
 def create_shell_tool(command_runner: CommandRunner) -> ToolDefinition:
-    """构造 shell 工具；它是第一章能力在第二章的原样保留。"""
+    """构造 shell 工具；它是第一章能力在第二章的原样保留。
+
+    这是什么：shell 工具定义工厂方法
+    Java 类比：类似 @Bean ToolDefinition shellTool(CommandRunner runner)
+    为什么需要：创建 PowerShell 命令执行工具，将命令运行器注入到工具处理器中
+    """
     def handler(arguments: Mapping[str, Any], context: ToolContext) -> ToolResult:
         try:
             result = command_runner.run(str(arguments["command"]), context.workspace)
@@ -54,23 +65,52 @@ def create_shell_tool(command_runner: CommandRunner) -> ToolDefinition:
 
 
 def _read_args(value: Mapping[str, Any]) -> bool:
+    """校验 read_file 工具参数：path 必填，limit 可选且为正整数。
+
+    这是什么：read_file 工具的参数校验器
+    Java 类比：类似 boolean validateReadArgs(Map<String, Object> args)
+    为什么需要：确保 path 非空，limit（如果存在）是正整数而非布尔值
+    """
     return set(value) <= {"path", "limit"} and isinstance(value.get("path"), str) and bool(value["path"]) and ("limit" not in value or (isinstance(value["limit"], int) and not isinstance(value["limit"], bool) and value["limit"] > 0))
 
 
 def _write_args(value: Mapping[str, Any]) -> bool:
+    """校验 write_file 工具参数：path 和 content 都必填且为字符串。
+
+    这是什么：write_file 工具的参数校验器
+    Java 类比：类似 boolean validateWriteArgs(Map<String, Object> args)
+    为什么需要：确保 path 非空且 content 存在（允许空字符串）
+    """
     return set(value) == {"path", "content"} and isinstance(value.get("path"), str) and bool(value["path"]) and isinstance(value.get("content"), str)
 
 
 def _edit_args(value: Mapping[str, Any]) -> bool:
+    """校验 edit_file 工具参数：path、old_text、new_text 都必填，old_text 非空。
+
+    这是什么：edit_file 工具的参数校验器
+    Java 类比：类似 boolean validateEditArgs(Map<String, Object> args)
+    为什么需要：确保三个字段都是字符串，且 path 和 old_text 非空（new_text 允许空）
+    """
     return set(value) == {"path", "old_text", "new_text"} and all(isinstance(value.get(key), str) for key in value) and bool(value["path"]) and bool(value["old_text"])
 
 
 def _glob_args(value: Mapping[str, Any]) -> bool:
+    """校验 glob 工具参数：pattern 必填且非空。
+
+    这是什么：glob 工具的参数校验器
+    Java 类比：类似 boolean validateGlobArgs(Map<String, Object> args)
+    为什么需要：确保 pattern 是非空字符串
+    """
     return set(value) == {"pattern"} and isinstance(value.get("pattern"), str) and bool(value["pattern"])
 
 
 def _map_file_error(error: Exception, path: str) -> ToolResult:
-    """把文件系统领域异常映射为稳定错误码和中文说明。"""
+    """把文件系统领域异常映射为稳定错误码和中文说明。
+
+    这是什么：文件系统异常到工具错误的映射器
+    Java 类比：类似 ToolResult mapException(Exception e, String path)
+    为什么需要：将领域异常转换为模型可理解的错误码和消息，避免暴露内部实现细节
+    """
     if isinstance(error, WorkspacePathError):
         return tool_error("path_escape", str(error))
     if isinstance(error, InvalidUtf8Error):
@@ -85,7 +125,12 @@ def _map_file_error(error: Exception, path: str) -> ToolResult:
 
 
 def create_read_file_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
-    """创建严格 UTF-8 读取工具。"""
+    """创建严格 UTF-8 读取工具。
+
+    这是什么：read_file 工具定义工厂方法
+    Java 类比：类似 @Bean ToolDefinition readFileTool(FileSystem fs)
+    为什么需要：创建文件读取工具，将文件系统注入到工具处理器中
+    """
     def handler(arguments: Mapping[str, Any], context: ToolContext) -> ToolResult:
         path = str(arguments["path"])
         try:
@@ -96,7 +141,12 @@ def create_read_file_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
 
 
 def create_write_file_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
-    """创建完整写入工具；父目录不存在时自动创建。"""
+    """创建完整写入工具；父目录不存在时自动创建。
+
+    这是什么：write_file 工具定义工厂方法
+    Java 类比：类似 @Bean ToolDefinition writeFileTool(FileSystem fs)
+    为什么需要：创建文件写入工具，自动创建父目录提升易用性
+    """
     def handler(arguments: Mapping[str, Any], context: ToolContext) -> ToolResult:
         path = str(arguments["path"])
         try:
@@ -108,7 +158,12 @@ def create_write_file_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
 
 
 def create_edit_file_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
-    """创建精确编辑工具；只替换第一次匹配。"""
+    """创建精确编辑工具；只替换第一次匹配。
+
+    这是什么：edit_file 工具定义工厂方法
+    Java 类比：类似 @Bean ToolDefinition editFileTool(FileSystem fs)
+    为什么需要：创建文本替换工具，让模型能精确修改代码片段而不覆盖全文
+    """
     def handler(arguments: Mapping[str, Any], context: ToolContext) -> ToolResult:
         path = str(arguments["path"])
         try:
@@ -122,7 +177,12 @@ def create_edit_file_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
 
 
 def create_glob_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
-    """创建文件发现工具，结果按字母排序。"""
+    """创建文件发现工具，结果按字母排序。
+
+    这是什么：glob 工具定义工厂方法
+    Java 类比：类似 @Bean ToolDefinition globTool(FileSystem fs)
+    为什么需要：创建文件搜索工具，让模型能按通配符模式查找文件
+    """
     def handler(arguments: Mapping[str, Any], context: ToolContext) -> ToolResult:
         pattern = str(arguments["pattern"])
         try:
@@ -134,14 +194,24 @@ def create_glob_tool(file_system: WorkspaceFileSystem) -> ToolDefinition:
 
 
 def create_chapter_one_tools(command_runner: CommandRunner) -> ToolRegistry:
-    """构造 P01 工具集，仅包含 shell。"""
+    """构造 P01 工具集，仅包含 shell。
+
+    这是什么：第一章工具集工厂方法
+    Java 类比：类似 @Bean ToolRegistry chapterOneTools(CommandRunner runner)
+    为什么需要：创建第一章的工具集，只包含 shell 工具
+    """
     registry = ToolRegistry()
     registry.register(create_shell_tool(command_runner))
     return registry
 
 
 def create_chapter_two_tools(command_runner: CommandRunner, file_system: WorkspaceFileSystem) -> ToolRegistry:
-    """在 P01 工具集上累加四个文件工具。"""
+    """在 P01 工具集上累加四个文件工具。
+
+    这是什么：第二章工具集工厂方法
+    Java 类比：类似 @Bean ToolRegistry chapterTwoTools(CommandRunner runner, FileSystem fs)
+    为什么需要：创建第二章的工具集，在第一章基础上增加文件操作工具
+    """
     registry = create_chapter_one_tools(command_runner)
     registry.register(create_read_file_tool(file_system))
     registry.register(create_write_file_tool(file_system))

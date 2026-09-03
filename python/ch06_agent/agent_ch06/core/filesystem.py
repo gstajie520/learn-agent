@@ -1,5 +1,9 @@
 """工作区文件系统的领域错误和接口。
 
+这是什么：文件系统操作的接口定义和领域异常
+Java 类比：interface WorkspaceFileSystem + 自定义异常类
+为什么需要：定义文件系统的抽象接口，让核心代码不依赖具体的文件操作实现
+
 Java 对照：这里是领域异常 + `interface` 的组合。核心工具只依赖
 `WorkspaceFileSystem`，不直接依赖 `pathlib` 或操作系统 API。
 """

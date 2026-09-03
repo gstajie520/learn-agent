@@ -1,5 +1,20 @@
 """带 Hook 生命周期的 Agent 核心循环。
 
+这是什么：第 4 章扩展的 Agent 循环，集成 Hook 系统、权限策略和多个观察器
+Java 类比：类似 Spring 的 Controller + Interceptor Chain，按固定顺序调用拦截器
+为什么需要：在核心循环中插入扩展点，支持权限审批、日志记录、记忆存储等功能
+
+核心扩展点：
+    1. user_prompt Hook：用户输入后触发（可注入额外上下文）
+    2. before_model Hook：每次调用模型前触发（可注入临时指导）
+    3. pre_tool_use Hook：工具执行前触发（可阻断或修改参数）
+    4. post_tool_use Hook：工具执行后触发（可修改结果或强制停止）
+    5. stop Hook：模型返回文本时触发（可强制继续循环）
+
+工具调用配对约束（第 4 章最重要的约束）：
+    无论 Hook 阻断、异常还是主动停止，每个 tool_call_id 都必须得到且只得到
+    一条 tool 消息。否则下次模型请求会被 OpenAI API 拒绝（400 Bad Request）。
+
 Java 角度：这是应用服务。它按照固定顺序调用模型、Hook、权限策略和工具注册表，
 但不负责创建这些依赖。第四章最重要的约束是：无论 Hook 阻断、异常还是主动停止，
 每个 `tool_call_id` 都必须得到且只得到一条 tool 消息。
@@ -25,27 +40,60 @@ from .tools import PreparedToolCall, ToolContext, ToolRegistry, ToolResult, tool
 
 
 class AgentRunError(Exception):
-    """Agent 执行过程中的领域错误。"""
+    """Agent 执行过程中的领域错误。
+
+    这是什么：Agent 运行时的基础异常类
+    Java 类比：类似自定义的 AgentException 基类
+    为什么需要：区分 Agent 业务错误和系统错误（如 IOException）
+    """
 
 
 class AgentLimitError(AgentRunError):
-    """达到最大模型调用轮数。"""
+    """达到最大模型调用轮数。
+
+    这是什么：Agent 循环超过 max_turns 限制的异常
+    Java 类比：类似 TooManyRequestsException
+    为什么需要：防止模型陷入工具调用死循环，保护成本和性能
+
+    触发场景：模型连续调用工具 max_turns 次仍未返回文本
+    """
 
 
 class IncompleteModelReplyError(AgentRunError):
-    """模型输出因 token 限制被截断。"""
+    """模型输出因 token 限制被截断。
+
+    这是什么：模型回复不完整的异常
+    Java 类比：类似 IncompleteDataException
+    为什么需要：避免把半截回答当成完整结果返回给用户
+
+    触发场景：finish_reason == "length"（达到 max_tokens）
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class ToolAuthorizationDecision:
-    """旧章节兼容授权结果：是否允许，以及给模型看的原因。"""
+    """旧章节兼容授权结果：是否允许，以及给模型看的原因。
+
+    这是什么：第 3 章的工具授权返回值（第 4 章后被 PermissionPolicy 替代）
+    Java 类比：类似 AuthorizationResult record
+    为什么需要：向后兼容旧代码，新代码应使用 PermissionPolicy
+
+    字段说明：
+        allowed: True 表示可以执行工具；False 表示只生成拒绝结果
+        reason: 给人和模型看的原因，拒绝时尤其重要（模型会看到这个文本）
+    """
 
     allowed: bool
     reason: str
 
 
 class ToolAuthorizer(Protocol):
-    """旧章节兼容授权接口，类似 Java 中的鉴权 Service。"""
+    """旧章节兼容授权接口，类似 Java 中的鉴权 Service。
+
+    这是什么：第 3 章的工具授权接口（第 4 章后被 PermissionPolicy 替代）
+    Java 类比：interface ToolAuthorizer { Decision authorize(...); }
+    为什么需要：向后兼容旧代码，新代码应使用 PermissionPolicy
+    """
 
     def authorize(
         self, prepared: PreparedToolCall, context: ToolContext
@@ -53,29 +101,63 @@ class ToolAuthorizer(Protocol):
 
 
 class ToolRoundObserver(Protocol):
-    """工具轮观察器接口，类似 Java 中应用服务依赖的扩展 interface。"""
+    """工具轮观察器接口，类似 Java 中应用服务依赖的扩展 interface。
+
+    这是什么：观察工具调用的扩展接口（如 TodoTracker 实现此接口）
+    Java 类比：interface ToolRoundObserver（观察者模式）
+    为什么需要：让外部组件（如 TODO 系统）观察工具调用，而不侵入核心循环
+
+    两个回调：
+        before_model: 每次调用模型前，返回临时指导消息（不进入正式历史）
+        record_tool_round: 整轮工具执行完成后，记录本轮调用过的工具名
+    """
 
     def before_model(self) -> tuple[ChatMessage, ...]:
-        """返回只用于下一次模型请求的临时指导，不进入正式历史。"""
+        """返回只用于下一次模型请求的临时指导，不进入正式历史。
+
+        这是什么：动态注入临时上下文的回调
+        Java 类比：类似 RequestInterceptor.preHandle()
+        为什么需要：TodoTracker 可以在每次请求前插入当前 TODO 列表
+        """
 
     def record_tool_round(self, tool_names: tuple[str, ...]) -> None:
-        """整轮工具结果全部落盘后，记录本轮调用过的工具名。"""
+        """整轮工具结果全部落盘后，记录本轮调用过的工具名。
+
+        这是什么：工具调用记录的回调
+        Java 类比：类似 AuditLogger.logToolUsage()
+        为什么需要：TodoTracker 可以根据工具调用自动勾选完成的 TODO 项
+        """
 
 
 class RequestHistoryProcessor(Protocol):
-    """请求发给模型前的临时历史处理器。"""
+    """请求发给模型前的临时历史处理器。
+
+    这是什么：历史压缩/裁剪的扩展接口
+    Java 类比：interface HistoryProcessor（策略模式）
+    为什么需要：当历史过长时，可以压缩或裁剪历史再发给模型
+    """
 
     def prepare(self, history: tuple[ChatMessage, ...]) -> tuple[ChatMessage, ...]: ...
 
 
 class ToolResultProcessor(Protocol):
-    """整批工具结果回填 canonical history 前的处理器。"""
+    """整批工具结果回填 canonical history 前的处理器。
+
+    这是什么：工具结果后处理的扩展接口
+    Java 类比：interface ResultProcessor（策略模式）
+    为什么需要：可以在工具结果写入历史前进行裁剪或摘要
+    """
 
     def compact_tool_results(self, results: tuple[ToolResult, ...]) -> "ProcessedToolResults": ...
 
 
 class TurnLifecycle(Protocol):
-    """一轮 Agent 的生命周期边界，类似 Java 的请求拦截器链。"""
+    """一轮 Agent 的生命周期边界，类似 Java 的请求拦截器链。
+
+    这是什么：Agent 轮次生命周期的扩展接口
+    Java 类比：interface TurnLifecycle（拦截器模式）
+    为什么需要：MemorySession 实现此接口，在轮次开始和结束时处理长期记忆
+    """
 
     def begin_turn(self, query: str) -> None: ...
 
@@ -85,13 +167,23 @@ class TurnLifecycle(Protocol):
 
 
 class SystemPromptProvider(Protocol):
-    """每轮模型请求前渲染 system prompt，类似 Java ``Supplier<String>``。"""
+    """每轮模型请求前渲染 system prompt，类似 Java ``Supplier<String>``。
+
+    这是什么：动态生成 system prompt 的扩展接口
+    Java 类比：interface Supplier<String>（工厂模式）
+    为什么需要：支持动态 system prompt（如根据时间、上下文变化）
+    """
 
     def render(self) -> str: ...
 
 
 class ModelRequestExecutor(Protocol):
-    """一次逻辑模型请求执行器，内部可以重试但不能重进 Agent Loop。"""
+    """一次逻辑模型请求执行器，内部可以重试但不能重进 Agent Loop。
+
+    这是什么：模型请求执行的扩展接口（支持重试、缓存等）
+    Java 类比：interface RequestExecutor（策略模式）
+    为什么需要：封装模型请求的重试逻辑、错误处理、缓存等
+    """
 
     def begin_turn(self) -> None: ...
 
@@ -99,7 +191,12 @@ class ModelRequestExecutor(Protocol):
 
 
 class ProcessedToolResults(Protocol):
-    """结果处理器只需要公开不可变的 ``results`` 字段。"""
+    """结果处理器只需要公开不可变的 ``results`` 字段。
+
+    这是什么：工具结果处理后的返回值接口
+    Java 类比：interface ProcessedResults（值对象）
+    为什么需要：封装处理后的结果，保证不可变性
+    """
 
     @property
     def results(self) -> tuple[ToolResult, ...]: ...

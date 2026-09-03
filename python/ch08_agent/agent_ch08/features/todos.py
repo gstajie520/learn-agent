@@ -1,5 +1,9 @@
 """第六章子 Agent 会话级 TODO 计划快照。
 
+这是什么：管理 Agent 会话内 TODO 列表的模块
+Java 类比：类似有状态的 TodoService，实现 ToolRoundObserver 接口
+为什么需要：让 Agent 维护任务清单，并在长期未更新时提醒模型同步计划
+
 Java 对照：`TodoTracker` 同时扮演一个有状态的领域服务和工具轮观察器。
 它不是数据库 Repository，状态只属于当前 AgentRunner，会话结束后自然消失。
 """
@@ -23,14 +27,24 @@ TODO_STATUSES: tuple[TodoStatus, ...] = ("pending", "in_progress", "completed")
 
 @dataclass(frozen=True, slots=True)
 class TodoItem:
-    """一条不可变 TODO，类似 Java record。"""
+    """一条不可变 TODO，类似 Java record。
+
+    这是什么：表示单个 TODO 条目的数据类
+    Java 类比：类似 record TodoItem(String content, TodoStatus status)
+    为什么需要：以不可变方式存储任务内容和状态，防止意外修改
+    """
 
     content: str  # 去掉首尾空白后的任务说明。
     status: TodoStatus  # pending、in_progress、completed 三选一。
 
 
 def _validate_todo_input(value: Mapping[str, Any]) -> bool:
-    """严格校验完整快照，未知字段或任意坏项都整体拒绝。"""
+    """严格校验完整快照，未知字段或任意坏项都整体拒绝。
+
+    这是什么：校验 todo_write 工具参数格式的函数
+    Java 类比：类似 boolean validateTodoInput(Map<String, Object> args)
+    为什么需要：确保 TODO 快照格式正确，防止无效数据进入系统
+    """
     if set(value) != {"todos"}:
         return False
     raw_todos = value.get("todos")
@@ -47,7 +61,12 @@ def _validate_todo_input(value: Mapping[str, Any]) -> bool:
 
 
 def _serialize_snapshot(todos: Sequence[TodoItem]) -> str:
-    """返回紧凑、字段顺序稳定的 ASCII JSON，中文会变成 Unicode 转义。"""
+    """返回紧凑、字段顺序稳定的 ASCII JSON，中文会变成 Unicode 转义。
+
+    这是什么：将 TODO 列表序列化为 JSON 字符串的函数
+    Java 类比：类似 String serializeToJson(List<TodoItem> todos)
+    为什么需要：生成稳定格式的 JSON 响应，便于模型解析和测试断言
+    """
     return json.dumps(
         {"todos": [{"content": item.content, "status": item.status} for item in todos]},
         ensure_ascii=True,
@@ -56,7 +75,12 @@ def _serialize_snapshot(todos: Sequence[TodoItem]) -> str:
 
 
 class TodoTracker:
-    """保存当前完整计划，并统计连续未更新计划的工具轮。"""
+    """保存当前完整计划，并统计连续未更新计划的工具轮。
+
+    这是什么：管理 TODO 列表状态并监控更新频率的类
+    Java 类比：类似 @Service class TodoTracker implements ToolRoundObserver
+    为什么需要：提供 TODO 工具实现，同时监控未更新轮数并在必要时提醒模型
+    """
 
     def __init__(self) -> None:
         self._todos: tuple[TodoItem, ...] = ()

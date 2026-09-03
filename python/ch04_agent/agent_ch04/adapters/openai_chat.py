@@ -16,24 +16,38 @@ from ..core.model import ModelClient, ModelReply, ModelRequest, TokenUsage
 class OpenAIResponseError(Exception):
     """供应商响应不符合 Chat Completions 契约。
 
-    Java 对照：类似 `InvalidProviderResponseException`，表示 HTTP 请求可能成功了，
-    但响应内容的字段、角色或结束原因不符合本项目要求。
+    这是什么：模型响应格式异常
+    Java 类比：类似 InvalidProviderResponseException
+    为什么需要：HTTP 请求可能成功但响应结构不合法，需要区分网络错误和数据格式错误
     """
 
 
 class OpenAIChatModel(ModelClient):
     """ModelClient 的真实 OpenAI 兼容实现。
 
-    DeepSeek 实现了相同的 Chat Completions 协议，所以只需更换 base_url、key 和模型名。
+    这是什么：OpenAI Chat Completions API 的适配器实现
+    Java 类比：类似 @Component class OpenAIAdapter implements ModelClient
+    为什么需要：将 OpenAI SDK 的调用封装为领域接口，DeepSeek 等兼容服务只需更换配置即可接入
     """
 
     def __init__(self, settings: OpenAISettings, client: Any | None = None) -> None:
+        """初始化 OpenAI 客户端。
+
+        这是什么：构造器，支持依赖注入真实 SDK 或测试 Fake
+        Java 类比：类似构造器注入 @Autowired(required = false) OpenAI client
+        为什么需要：client 可选参数让测试时能注入 Mock，生产环境则创建真实 SDK 客户端
+        """
         # client 可选是为了测试：生产环境创建真实 SDK，测试环境传入 FakeClient。
         self._client = client or OpenAI(api_key=settings.api_key, base_url=settings.base_url, max_retries=0)
         self._model = settings.model  # 没有单次覆盖时默认使用的模型名称。
 
     def complete(self, request: ModelRequest) -> ModelReply:
-        """把内部请求转换成 SDK 请求，再把 SDK 响应转换回内部对象。"""
+        """把内部请求转换成 SDK 请求，再把 SDK 响应转换回内部对象。
+
+        这是什么：模型调用的核心方法
+        Java 类比：类似 public ModelReply execute(ModelRequest request)
+        为什么需要：实现 ModelClient 接口契约，将领域对象转换为供应商 SDK 格式，并校验响应
+        """
 
         # 先在本地检查历史，避免用一份已损坏的消息浪费网络请求和 token。
         validate_tool_pairing(list(request.messages))
@@ -54,11 +68,12 @@ class OpenAIChatModel(ModelClient):
 
 
 def _to_openai_message(message: Any) -> dict[str, Any]:
-    """把内部 dataclass 消息转换成供应商要求的字典格式。
+    “””把内部 dataclass 消息转换成供应商要求的字典格式。
 
-    Java 对照：类似把内部 DTO 映射成第三方 SDK Request DTO。
-    函数名前面的单下划线表示“仅供本模块内部使用”，近似 Java 的 private 方法约定。
-    """
+    这是什么：消息格式转换器，从内部模型转为 OpenAI API 格式
+    Java 类比：类似 private Map<String, Object> toProviderDTO(Message message)
+    为什么需要：领域层使用类型安全的 dataclass，而 OpenAI SDK 需要字典，转换层隔离两者
+    “””
     if message.role in {"system", "user"}:
         return {"role": message.role, "content": message.content}
     if message.role == "tool":
@@ -72,8 +87,9 @@ def _to_openai_message(message: Any) -> dict[str, Any]:
 def _normalize_response(response: Any) -> ModelReply:
     """校验外部响应，并转换成核心层认识的 ModelReply。
 
-    SDK 返回的数据属于不可信边界，就像 Controller 收到的外部请求一样，
-    不能因为有类型提示就跳过运行时校验。
+    这是什么：响应校验与转换器
+    Java 类比：类似 private ModelReply validateAndMap(ProviderResponse response)
+    为什么需要：SDK 返回的数据属于不可信边界，必须运行时校验并转换为领域对象，防止脏数据进入核心逻辑
     """
     try:
         if not isinstance(response.choices, list) or len(response.choices) != 1:

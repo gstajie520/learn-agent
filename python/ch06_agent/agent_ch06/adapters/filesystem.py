@@ -1,5 +1,9 @@
 """本地文件系统适配器。
 
+这是什么：文件系统操作的适配器实现，封装 pathlib 和 os 模块
+Java 类比：@Repository class LocalFileSystemAdapter implements WorkspaceFileSystem
+为什么需要：隔离底层文件操作细节，提供统一的文件系统接口和边界检查
+
 这层相当于 Java 的基础设施适配器：把 `pathlib`/`os` 的细节藏起来，
 并在每次操作前检查工作区边界、符号链接和 Windows 保留路径名。
 """

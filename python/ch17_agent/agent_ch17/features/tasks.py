@@ -35,6 +35,10 @@ CANONICAL_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 class TaskError(Exception):
     """所有可预期 Task 领域错误的父类。
 
+    这是什么：任务领域的业务异常基类，带稳定错误码
+    Java 类比：abstract class BusinessException { String errorCode; String message; }
+    为什么需要：区分业务错误和系统错误，让调用方能针对性处理（如重试、回退、提示用户）
+
     ``code`` 是给程序和模型判断的稳定错误码；中文 ``message`` 是给学习者看的说明。
     Java 中可以理解成带 ``errorCode`` 字段的业务异常基类。
     """
@@ -95,8 +99,12 @@ class TaskStorageError(TaskError):
 class Task:
     """一个不可变项目任务。
 
+    这是什么：任务 DAG 中的一个节点，包含状态、依赖和 owner
+    Java 类比：record Task(UUID id, String subject, TaskStatus status, String owner, List<UUID> blockedBy)
+    为什么需要：表达任务的三态生命周期（pending → in_progress → completed）和依赖关系
+
     字段说明：
-        ``id``：canonical UUID，也是 JSON 文件名。
+        ``id``：canonical UUID，也是 JSON 文件名或 SQLite 主键。
         ``subject``：列表中快速识别任务的短标题。
         ``description``：更完整的工作说明，允许为空字符串。
         ``status``：只允许 pending、in_progress、completed 三态。

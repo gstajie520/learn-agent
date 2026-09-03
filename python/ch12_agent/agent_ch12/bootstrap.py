@@ -1,7 +1,8 @@
-"""组合根：按固定 Profile 装配第 1 到第 11 章累计能力。
+"""组合根：按固定 Profile 装配第 1 到第 12 章累计能力。
 
-Java 对照：这相当于 Spring `@Configuration`。它创建真实适配器、工具注册表、
-权限策略和 Hook 注册表，但不把业务流程写在对象创建代码里。
+这是什么：Agent 的依赖注入和组装模块
+Java 类比：类似 Spring 的 @Configuration 类，负责对象创建和依赖装配
+为什么需要：集中管理对象创建逻辑，支持测试时注入 Fake 依赖
 """
 
 from collections.abc import Callable
@@ -60,7 +61,30 @@ def build_agent(
     recovery_config: RecoveryConfig | None = None,
     task_store: TaskStore | None = None,
 ) -> AgentRunner:
-    """创建固定章节 Agent，并拒绝能力越级注入。"""
+    """创建固定章节 Agent，并拒绝能力越级注入。
+
+    这是什么：Agent 的工厂函数，根据 Profile 装配对应章节的能力
+    Java 类比：类似 @Bean 方法，根据配置创建并装配 AgentRunner
+    为什么需要：按章节渐进式累加能力，防止低章节注入高章节才有的依赖
+
+    参数：
+        profile: 章节配置对象 (P01~P12)
+        model: 模型客户端
+        workspace: 工作区根目录
+        command_runner: 命令执行器，None 时使用 PowerShellRunner
+        file_system: 文件系统，None 时使用 LocalWorkspaceFileSystem
+        authorizer: 工具授权器，用于权限控制
+        approval_provider: 审批提供者，用于交互式权限确认
+        audit_sink: 审计日志接收器
+        hooks: Hook 注册表，P04 及以上章节支持
+        max_turns: 最大工具轮次限制
+        subagent_model_factory: 子 Agent 模型工厂，P06 及以上章节支持
+        recovery_config: 恢复策略配置，P11 及以上章节支持
+        task_store: 任务存储，P12 支持
+
+    返回：
+        AgentRunner: 装配完成的 Agent 运行器
+    """
     if (
         profile is not P01
         and profile is not P02

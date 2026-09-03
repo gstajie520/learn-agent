@@ -27,15 +27,30 @@ SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class SkillError(Exception):
-    """Skill 领域错误的共同父类。"""
+    """Skill 领域错误的共同父类。
+
+    这是什么：所有 Skill 相关异常的基类
+    Java 类比：类似自定义 BusinessException 基类
+    为什么需要：统一 Skill 领域异常，便于调用方分类捕获
+    """
 
 
 class SkillPathError(SkillError):
-    """Skill 根目录、Skill 目录或 manifest 逃出了受控边界。"""
+    """Skill 根目录、Skill 目录或 manifest 逃出了受控边界。
+
+    这是什么：路径安全校验失败的异常
+    Java 类比：类似 SecurityException，防止路径穿越攻击
+    为什么需要：拒绝符号链接逃逸、.. 片段、绝对路径等不安全操作
+    """
 
 
 class SkillManifestError(SkillError):
-    """SKILL.md 的 frontmatter 缺失、YAML 错误或字段不符合契约。"""
+    """SKILL.md 的 frontmatter 缺失、YAML 错误或字段不符合契约。
+
+    这是什么：Skill manifest 格式错误的异常
+    Java 类比：类似 ValidationException，表示配置文件格式不正确
+    为什么需要：保证每个 Skill 都有有效的 name 和 description
+    """
 
 
 class DuplicateSkillError(SkillError):
@@ -52,7 +67,16 @@ class SkillNotFoundError(SkillError):
 
 @dataclass(frozen=True, slots=True)
 class SkillSummary:
-    """公开给模型的目录条目，只包含路由所需的两项元数据。"""
+    """公开给模型的目录条目，只包含路由所需的两项元数据。
+
+    这是什么：Skill 目录条目，不包含正文内容
+    Java 类比：不可变 record，类似 DTO 只暴露必要字段
+    为什么需要：启动时只读取元数据，模型按需调用 load_skill 才读取正文
+
+    字段：
+        name: 稳定的工具路由名称，也必须等于目录名
+        description: 一行路由说明，不包含 Skill 私有正文
+    """
 
     name: str  # 稳定的工具路由名称，也必须等于目录名。
     description: str  # 一行路由说明，不包含 Skill 私有正文。
@@ -60,7 +84,18 @@ class SkillSummary:
 
 @dataclass(frozen=True, slots=True)
 class _SkillRecord:
-    """注册表内部记录；路径保存逻辑入口，加载时会重新解析真实路径。"""
+    """注册表内部记录；路径保存逻辑入口，加载时会重新解析真实路径。
+
+    这是什么：Skill 注册表的内部存储结构
+    Java 类比：不可变 record，类似缓存条目包含元数据和路径
+    为什么需要：分离扫描阶段（读 frontmatter）和加载阶段（读正文 + 再次校验路径）
+
+    字段：
+        summary: 扫描阶段校验过的名称和描述
+        directory_name: workspace/skills 下的目录名
+        directory_path: 逻辑目录入口，防止扫描后替换链接不被发现
+        manifest_path: 逻辑 SKILL.md 入口，加载时重新做 realpath 校验
+    """
 
     summary: SkillSummary  # 扫描阶段校验过的名称和描述。
     directory_name: str  # workspace/skills 下的目录名。
@@ -69,7 +104,19 @@ class _SkillRecord:
 
 
 def _validate_skill_name(name: str) -> None:
-    """校验名称到目录的映射，拒绝路径穿越和 Windows 设备名。"""
+    """校验名称到目录的映射，拒绝路径穿越和 Windows 设备名。
+
+    这是什么：Skill 名称安全校验
+    Java 类比：类似输入校验器，防止注入攻击
+    为什么需要：防止 "../../../etc/passwd" 或 "CON" 等危险名称
+
+    校验规则：
+        1. 必须是字符串且长度在 1-64 之间
+        2. 只允许小写字母、数字、连字符（kebab-case）
+        3. 不能是 Windows 保留名称（CON, PRN, AUX 等）
+
+    抛出：SkillNameError（名称不合法）
+    """
     if (
         not isinstance(name, str)
         or not 1 <= len(name) <= MAX_SKILL_NAME_LENGTH
@@ -222,7 +269,23 @@ def _bounded_catalog(
 
 
 class SkillRegistry:
-    """绑定一个 workspace 的 Skill 元数据注册表和 `load_skill` 工具。"""
+    """绑定一个 workspace 的 Skill 元数据注册表和 `load_skill` 工具。
+
+    这是什么：Skill 管理器，提供目录扫描和按需加载功能
+    Java 类比：类似 Spring 的 BeanDefinitionRegistry，启动时扫描元数据，运行时加载实例
+    为什么需要：
+        1. 启动时只读 frontmatter，避免 System Prompt 过长
+        2. 模型按需调用 load_skill 才读取正文
+        3. 加载时重新校验路径，防止扫描后被篡改
+
+    字段：
+        _workspace_root: 所有 Skill 路径的最高信任边界
+        _skills_root: workspace 下的 skills 根目录
+        _records: 内部完整记录，模型只能看到摘要
+        names: 稳定名称快照，便于测试和日志
+        catalog_entries: 已应用预算的公开摘要快照
+        tool_definition: load_skill 工具的定义（注册到 ToolRegistry）
+    """
 
     def __init__(
         self,

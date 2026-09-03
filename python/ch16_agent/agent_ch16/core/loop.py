@@ -3,6 +3,8 @@
 Java 角度：这是应用服务。它按照固定顺序调用模型、Hook、权限策略和工具注册表，
 但不负责创建这些依赖。第四章最重要的约束是：无论 Hook 阻断、异常还是主动停止，
 每个 `tool_call_id` 都必须得到且只得到一条 tool 消息。
+
+第 16 章关键：run_events() 消费协议事件，ack-after-processing 保证消息不丢失。
 """
 
 import asyncio
@@ -26,27 +28,52 @@ from .tools import PreparedToolCall, ToolContext, ToolRegistry, ToolResult, tool
 
 
 class AgentRunError(Exception):
-    """Agent 执行过程中的领域错误。"""
+    """Agent 执行过程中的领域错误。
+
+    这是什么：Agent 运行时的基础异常类
+    Java 类比：类似自定义的 BusinessException 基类
+    为什么需要：区分业务错误和系统错误（如 IOException），让调用方能针对性处理
+    """
 
 
 class AgentLimitError(AgentRunError):
-    """达到最大模型调用轮数。"""
+    """达到最大模型调用轮数。
+
+    这是什么：Agent 循环超过限制次数的专用异常
+    Java 类比：类似 TooManyRequestsException
+    为什么需要：防止模型陷入工具调用死循环，保护成本和性能
+    """
 
 
 class IncompleteModelReplyError(AgentRunError):
-    """模型输出因 token 限制被截断。"""
+    """模型输出因 token 限制被截断。
+
+    这是什么：模型回复不完整的异常
+    Java 类比：类似 IncompleteDataException
+    为什么需要：避免把半截回答当成完整结果返回给用户
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class ToolAuthorizationDecision:
-    """旧章节兼容授权结果：是否允许，以及给模型看的原因。"""
+    """旧章节兼容授权结果：是否允许，以及给模型看的原因。
 
-    allowed: bool
-    reason: str
+    这是什么：工具授权的决策结果（旧版 API，第 3 章后被 PermissionPolicy 替代）
+    Java 类比：类似授权决策的不可变 VO（Value Object）
+    为什么需要：保持向后兼容，旧代码仍可使用 ToolAuthorizer 接口
+    """
+
+    allowed: bool  # True=允许执行，False=拒绝
+    reason: str  # 决策原因，无论允许还是拒绝都必须说明
 
 
 class ToolAuthorizer(Protocol):
-    """旧章节兼容授权接口，类似 Java 中的鉴权 Service。"""
+    """旧章节兼容授权接口，类似 Java 中的鉴权 Service。
+
+    这是什么：工具授权的接口定义（第 1-2 章使用，第 3 章后被 PermissionPolicy 替代）
+    Java 类比：类似 AuthorizationService 接口
+    为什么需要：允许注入自定义授权逻辑，保持向后兼容
+    """
 
     def authorize(
         self, prepared: PreparedToolCall, context: ToolContext
@@ -54,13 +81,28 @@ class ToolAuthorizer(Protocol):
 
 
 class ToolRoundObserver(Protocol):
-    """工具轮观察器接口，类似 Java 中应用服务依赖的扩展 interface。"""
+    """工具轮观察器接口，类似 Java 中应用服务依赖的扩展 interface。
+
+    这是什么：工具执行前后的观察器接口，用于提供临时指导或记录统计
+    Java 类比：类似 ApplicationListener<ToolExecutionEvent>
+    为什么需要：允许在不修改核心循环的情况下注入额外逻辑（如计数、临时提示）
+    """
 
     def before_model(self) -> tuple[ChatMessage, ...]:
-        """返回只用于下一次模型请求的临时指导，不进入正式历史。"""
+        """返回只用于下一次模型请求的临时指导，不进入正式历史。
+
+        这是什么：提供临时指导消息给模型，但不持久化到历史
+        Java 类比：类似 RequestInterceptor 添加临时 header
+        为什么需要：动态注入提示而不污染持久化历史（如工具调用次数提醒）
+        """
 
     def record_tool_round(self, tool_names: tuple[str, ...]) -> None:
-        """整轮工具结果全部落盘后，记录本轮调用过的工具名。"""
+        """整轮工具结果全部落盘后，记录本轮调用过的工具名。
+
+        这是什么：记录工具调用统计的回调
+        Java 类比：类似 MetricsCollector 记录方法调用
+        为什么需要：支持工具使用统计、审计和限流
+        """
 
 
 class RequestHistoryProcessor(Protocol):
@@ -115,37 +157,72 @@ class ToolDispatcher(Protocol):
 
 
 class RuntimeEventPump(Protocol):
-    """后台事件泵接口。"""
+    """后台事件泵接口。
+
+    这是什么：运行时事件的队列接口，提供事件的拉取、等待和确认
+    Java 类比：类似 BlockingQueue<RuntimeEvent> + 确认机制
+    为什么需要：抽象事件队列，支持 Mailbox、Cron 等多种事件源
+    """
 
     @property
-    def has_pending_work(self) -> bool: ...
-    def drain_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]: ...
-    def wait_for_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]: ...
-    def acknowledge_events(self, events: tuple[RuntimeEvent, ...]) -> None: ...
+    def has_pending_work(self) -> bool:
+        """是否有待处理的事件（ready 状态）。"""
+        ...
+    def drain_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]:
+        """非阻塞拉取事件，返回空元组表示无事件。"""
+        ...
+    def wait_for_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]:
+        """阻塞等待事件，直到有至少一个事件或超时。"""
+        ...
+    def acknowledge_events(self, events: tuple[RuntimeEvent, ...]) -> None:
+        """确认事件已处理完成，将事件从 processing 移到 done。"""
+        ...
 
-    def release_events(self, events: tuple[RuntimeEvent, ...]) -> None: ...
+    def release_events(self, events: tuple[RuntimeEvent, ...]) -> None:
+        """释放事件租约，将事件从 processing 移回 ready（处理失败时使用）。"""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class RunResult:
-    """一次 Agent 运行结束后返回给调用方的不可变结果。"""
+    """一次 Agent 运行结束后返回给调用方的不可变结果。
 
-    final_text: str
-    history: tuple[ChatMessage, ...]
-    turns: int
+    这是什么：Agent 执行的结果快照，包含最终文本、消息历史和轮数
+    Java 类比：类似不可变的 ExecutionResult record
+    为什么需要：封装执行结果，提供不可变快照防止外部修改历史
+    """
+
+    final_text: str  # 模型最终返回的文本内容
+    history: tuple[ChatMessage, ...]  # 完整消息历史（不可变）
+    turns: int  # 模型调用轮数（用于成本统计和性能分析）
 
 
 @dataclass(frozen=True, slots=True)
 class ToolExecution:
-    """一次工具链路的内部结果，不暴露给 AgentRunner 外部。"""
+    """一次工具链路的内部结果，不暴露给 AgentRunner 外部。
 
-    result: ToolResult
-    additional_context: tuple[ChatMessage, ...] = ()
-    prevent_continuation: bool = False
+    这是什么：工具执行的内部结果，包含工具结果、附加上下文和停止标志
+    Java 类比：类似内部 DTO，封装工具执行的多种输出
+    为什么需要：统一处理工具结果、Hook 注入的上下文和停止信号
+    """
+
+    result: ToolResult  # 工具执行结果（成功或错误）
+    additional_context: tuple[ChatMessage, ...] = ()  # Hook 注入的附加消息（如解释、警告）
+    prevent_continuation: bool = False  # PostToolUse Hook 是否要求停止循环
 
 
 class AgentRunner:
-    """在确定位置发布 Hook 事件的单会话状态机。"""
+    """在确定位置发布 Hook 事件的单会话状态机。
+
+    这是什么：Agent 的核心循环编排器，管理模型-工具循环和事件消费
+    Java 类比：类似 ApplicationService，通过依赖注入组合各种领域服务
+    为什么需要：实现"模型→工具→模型"循环，协调 Hook、权限、事件等扩展点
+
+    第 16 章关键：
+    - run() 处理普通用户回合
+    - run_events() 消费协议事件（Mailbox/Cron）
+    - _pending_event_acks 保证 ack 失败时只补确认，不重复处理
+    """
 
     def __init__(
         self,
@@ -200,15 +277,20 @@ class AgentRunner:
         self._tool_dispatcher = tool_dispatcher
         self._event_pump = event_pump
         self._resources = resources
-        self._seen_event_ids: set[str] = set()
-        self._deferred_runtime_events: list[RuntimeEvent] = []
+        self._seen_event_ids: set[str] = set()  # 事件去重集合，防止重复处理
+        self._deferred_runtime_events: list[RuntimeEvent] = []  # 延迟处理的事件队列
         # 已写入 history 但 ack 失败的事件。下次 run_events 只重试 ack，不重复调用模型。
         self._pending_event_acks: dict[str, tuple[RuntimeEvent, RunResult]] = {}
-        self._history: list[ChatMessage] = []
+        self._history: list[ChatMessage] = []  # 可变消息历史（内部状态）
 
     @property
     def history(self) -> tuple[ChatMessage, ...]:
-        """返回不可变历史副本，外部不能修改下一轮模型请求。"""
+        """返回不可变历史副本，外部不能修改下一轮模型请求。
+
+        这是什么：提供只读的消息历史快照
+        Java 类比：类似 List.copyOf()，返回不可变视图
+        为什么需要：封装内部状态，防止外部代码意外修改历史
+        """
         return tuple(self._history)
 
     def run(
@@ -228,21 +310,32 @@ class AgentRunner:
         raise AgentRunError("当前线程已有 asyncio 事件循环，请在同步入口外调用 AgentRunner.run")
 
     def run_events(self) -> RunResult | None:
-        """消费一条运行时事件；事件回合完成后才 ack，ack 失败只重试确认。"""
+        """消费一条运行时事件；事件回合完成后才 ack，ack 失败只重试确认。
+
+        这是什么：消费运行时事件（Mailbox/Cron）并执行独立 Agent 回合
+        Java 类比：类似消息队列的消费者线程，poll() + process() + ack()
+        为什么需要：实现事件驱动架构，让协议事件和定时任务异步执行
+
+        ack-after-processing 语义：
+        1. 事件处理完成（模型调用成功）后才 ack
+        2. ack 失败时保留 pending_event_acks，下次只补 ack
+        3. 避免消息丢失：history 已写入，只是确认失败
+        """
         if self._pending_event_acks:
+            # 处理 ack 失败的事件：history 已经完成，只需补 ack
             event, result = next(iter(self._pending_event_acks.values()))
             if self._event_pump is not None:
-                self._event_pump.acknowledge_events((event,))
-            self._pending_event_acks.pop(event.event_id, None)
-            return result
+                self._event_pump.acknowledge_events((event,))  # 重试确认
+            self._pending_event_acks.pop(event.event_id, None)  # 确认成功后移除
+            return result  # 返回之前的执行结果
         next_event: RuntimeEvent | None = (
             self._deferred_runtime_events.pop(0) if self._deferred_runtime_events else None
         )
         if next_event is None and self._event_pump is not None:
-            drained = self._event_pump.drain_events(1)
+            drained = self._event_pump.drain_events(1)  # 非阻塞拉取一个事件
             next_event = drained[0] if drained else None
         if next_event is None:
-            return None
+            return None  # 没有待处理事件
         event = next_event
         try:
             asyncio.get_running_loop()

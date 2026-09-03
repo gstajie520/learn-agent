@@ -1,5 +1,9 @@
 """工具注册表。
 
+这是什么：工具的注册、准备、调用和定义管理
+Java 类比：@Service class ToolRegistry + CommandHandler 接口
+为什么需要：集中管理所有可用工具，提供统一的调用接口和参数校验
+
 Java 对照：`ToolRegistry` 类似按命令名保存 Handler 的注册表；`prepare` 是
 进入 Service 前的 JSON/schema 校验，`invoke` 才真正执行副作用。
 """
@@ -14,12 +18,16 @@ from typing import Any
 from .messages import ToolCall
 from .model import OpenAIToolSchema
 
-EffectClass = str
+EffectClass = str  # 工具的副作用分类，用于权限决策
 
 
 @dataclass(frozen=True, slots=True)
 class ToolContext:
     """程序提供给工具的受控运行环境。
+
+    这是什么：传递给工具执行器的上下文对象
+    Java 类比：record ToolContext(String workspace, String identity)
+    为什么需要：封装工具执行所需的环境信息（工作目录、身份），避免工具自行猜测
 
     工具不能自己猜工作目录，而是由 AgentRunner 明确传入，类似 Java Service
     接收一个包含租户、用户和工作目录的上下文对象。
@@ -33,6 +41,10 @@ class ToolContext:
 class ToolResult:
     """工具的统一返回值。
 
+    这是什么：工具执行后的结果对象，成功或失败都用此类型
+    Java 类比：record ToolResult(String content, boolean isError, String errorCode)
+    为什么需要：统一工具的返回格式，让模型能看到错误并自行调整策略
+
     工具失败也返回 ToolResult，而不是直接让整个 Agent 崩溃。
     这样模型能看到错误，并有机会换一种做法。
     """
@@ -43,7 +55,12 @@ class ToolResult:
 
 
 def tool_success(content: str) -> ToolResult:
-    """创建成功结果；错误码必须保持为空。"""
+    """创建成功结果；错误码必须保持为空。
+
+    这是什么：工具成功结果的工厂方法
+    Java 类比：public static ToolResult success(String content)
+    为什么需要：提供类型安全的成功结果构造，确保错误码为空
+    """
     return ToolResult(content, False)
 
 

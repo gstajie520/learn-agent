@@ -1,4 +1,9 @@
-"""第二章内置工具：保留 shell，并增加四个工作区文件工具。"""
+"""第二章内置工具：保留 shell，并增加四个工作区文件工具。
+
+这是什么：内置工具的实现（shell、read、write、edit、glob）
+Java 类比：@Component class BuiltinToolsFactory
+为什么需要：提供 Agent 的基础能力工具，支持命令执行和文件操作
+"""
 
 from collections.abc import Mapping
 from typing import Any

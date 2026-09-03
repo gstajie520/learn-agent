@@ -1,4 +1,9 @@
-﻿"""第二章内置工具：保留 shell，并增加四个工作区文件工具。"""
+﻿"""第二章内置工具：保留 shell，并增加四个工作区文件工具。
+
+这是什么：创建 shell、read_file、write_file、edit_file、glob 五个 ToolDefinition。
+Java 类比：类似 @Bean 工厂方法，把依赖组装成可用工具。
+为什么需要：工具注册表需要具体 ToolDefinition，这层负责把适配器组装成工具。
+"""
 
 from typing import Any
 

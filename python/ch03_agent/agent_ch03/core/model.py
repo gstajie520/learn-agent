@@ -1,8 +1,12 @@
-﻿"""模型边界契约。
+﻿“””模型边界契约。
 
-这里故意不导入 OpenAI SDK。核心循环只知道“有一个对象能完成一次模型请求”，
+这是什么：定义模型请求/响应的统一格式和客户端接口。
+Java 类比：类似 ModelClient interface 和 ModelRequest/ModelReply DTO。
+为什么需要：核心循环只依赖接口，不依赖 OpenAI SDK，便于测试和替换模型。
+
+这里故意不导入 OpenAI SDK。核心循环只知道”有一个对象能完成一次模型请求”，
 这就像 Java Service 只依赖 `ModelClient` 接口，而不是直接依赖某个厂商 SDK。
-"""
+“””
 
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol

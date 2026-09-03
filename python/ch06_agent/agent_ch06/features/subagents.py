@@ -1,5 +1,9 @@
 """第六章一次性子 Agent 工具。
 
+这是什么：实现 task 工具，将自包含任务委派给独立的子 AgentRunner
+Java 类比：@Service class SubagentTool，内部创建新的 AgentService 实例执行子任务
+为什么需要：让父 Agent 能把独立子任务委派出去，子任务有自己的历史和工具状态
+
 Java 对照：`SubagentTool` 是一个外部调用适配器，类似应用服务里委派另一个
 `AgentService` 的 facade。它不复制循环，而是创建新的 `AgentRunner`；父子共享
 Hook、权限、workspace 和 identity，但消息历史、模型请求队列和工具注册表隔离。
@@ -22,7 +26,7 @@ from ..core.tools import (
     tool_success,
 )
 
-TASK_TOOL_NAME = "task"
+TASK_TOOL_NAME = "task"  # 工具名称，父 Agent 调用此工具来委派子任务
 # 子 Agent 最多允许请求模型 30 次。测试可以调低，但正式配置不能调高。
 DEFAULT_SUBAGENT_MAX_TURNS = 30
 # 这是子 Agent 自己的 system prompt，不会继承父 Agent 的 system prompt。
@@ -35,6 +39,10 @@ DEFAULT_SUBAGENT_SYSTEM_PROMPT = (
 class ModelClientFactory(Protocol):
     """每次 task 调用创建一个独立模型边界。
 
+    这是什么：模型客户端工厂接口
+    Java 类比：Supplier<ModelClient>
+    为什么需要：每个子 Agent 需要独立的模型状态，避免会话混淆
+
     Java 对照：类似 `Supplier<ModelClient>`。使用工厂而不是固定对象，测试时可以
     为每个子任务准备独立回复队列，真实运行时也不会复用上一次子任务的会话状态。
     """
@@ -45,6 +53,10 @@ class ModelClientFactory(Protocol):
 class ToolRegistryFactory(Protocol):
     """每次 task 调用创建独立工具表，也可以附带会话观察器。
 
+    这是什么：工具注册表工厂接口
+    Java 类比：Supplier<Tuple<ToolRegistry, Optional<ToolRoundObserver>>>
+    为什么需要：每个子 Agent 需要独立的工具状态和 TODO 跟踪器
+
     返回 tuple 时，第一个元素是工具注册表，第二个元素是和该注册表配套的
     `TodoTracker` 等观察器。它们必须一起新建，不能让父子 Agent 共用 TODO 状态。
     """
@@ -53,7 +65,12 @@ class ToolRegistryFactory(Protocol):
 
 
 def _validate_task_input(value: Mapping[str, object]) -> bool:
-    """task 只接受一个非空 description 字段，拒绝未知字段。"""
+    """task 只接受一个非空 description 字段，拒绝未知字段。
+
+    这是什么：task 工具的参数校验器
+    Java 类比：类似 @Valid + 自定义 Validator
+    为什么需要：确保父 Agent 传递的子任务描述符合预期格式
+    """
     description = value.get("description")
     return (
         set(value) == {"description"} and isinstance(description, str) and bool(description.strip())
@@ -62,6 +79,10 @@ def _validate_task_input(value: Mapping[str, object]) -> bool:
 
 class SubagentTool:
     """把一个自包含描述委派给隔离的 AgentRunner，并只返回最终文本。
+
+    这是什么：实现 task 工具的核心类，负责创建和运行子 Agent
+    Java 类比：@Service class SubagentService，内部创建新的 AgentRunner
+    为什么需要：让父 Agent 能委派独立子任务，保持父子历史和状态隔离
 
     字段说明：
     - `_model_factory`：每次委派创建子模型客户端；

@@ -1,5 +1,9 @@
 ﻿"""PowerShell 进程适配器。
 
+这是什么：实现 CommandRunner 接口，启动 PowerShell 子进程并收集输出。
+Java 类比：类似 ProcessBuilder 封装类，处理进程启动、超时、输出截断。
+为什么需要：核心 Agent 不应直接接触 subprocess，隔离后可以用 Fake 测试。
+
 这层相当于 Java 中的 ProcessBuilder 适配器：负责 cwd、超时、stdout/stderr
 收集和输出上限，核心 Agent 不直接接触 subprocess。
 """

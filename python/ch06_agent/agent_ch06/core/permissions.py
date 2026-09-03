@@ -1,8 +1,12 @@
-"""权限策略领域模型。
+“””权限策略领域模型。
+
+这是什么：第三章引入的权限管理系统
+Java 类比：@Service class PermissionPolicy + 规则引擎 + 审批流程
+为什么需要：让工具调用受到规则和人工审批的控制，避免危险操作直接执行
 
 Java 对照：这里相当于一个独立的 Policy Service 模块，包含不可变 DTO、
-规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答“能不能执行”。
-"""
+规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答”能不能执行”。
+“””
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -11,21 +15,37 @@ from typing import Literal, Protocol
 from .filesystem import WorkspaceWriteBoundary
 from .tools import PreparedToolCall, ToolContext, ToolResult, tool_error
 
-PermissionBehavior = Literal["allow", "deny", "ask", "passthrough"]
+PermissionBehavior = Literal["allow", "deny", "ask", "passthrough"]  # 四种权限行为
 PERMISSION_BEHAVIORS: tuple[PermissionBehavior, ...] = ("allow", "deny", "ask", "passthrough")
 
 
 class PermissionContractError(Exception):
-    """权限请求、规则或决策违反领域契约。"""
+    """权限请求、规则或决策违反领域契约。
+
+    这是什么：权限系统的契约违反异常
+    Java 类比：IllegalArgumentException 或 ValidationException
+    为什么需要：区分权限配置错误和业务逻辑错误
+    """
 
 
 def _is_behavior(value: object) -> bool:
+    """校验权限行为是否合法。
+
+    这是什么：权限行为枚举校验函数
+    Java 类比：类似枚举的 valueOf 校验
+    为什么需要：确保权限行为在预定义的四种类型内
+    """
     return value in PERMISSION_BEHAVIORS
 
 
 @dataclass(frozen=True, slots=True)
 class PermissionDecision:
-    """一次权限结论：行为、解释原因和决策来源。"""
+    """一次权限结论：行为、解释原因和决策来源。
+
+    这是什么：权限决策的结果对象
+    Java 类比：record PermissionDecision(PermissionBehavior behavior, String reason, String source)
+    为什么需要：封装权限决策的三要素（行为、原因、来源），便于审计和追溯
+    """
 
     behavior: PermissionBehavior  # 四态行为；最终只有 allow/deny 可执行或回填。
     reason: str  # 给用户、模型和审计记录看的非空解释。

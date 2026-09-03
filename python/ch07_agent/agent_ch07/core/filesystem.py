@@ -1,5 +1,18 @@
 """工作区文件系统的领域错误和接口。
 
+这是什么：
+    文件系统领域层，定义领域异常和接口契约。
+
+Java 类比：
+    类似领域异常 + `interface` 的组合。核心工具只依赖
+    `WorkspaceFileSystem`，不直接依赖 `pathlib` 或操作系统 API。
+
+为什么需要：
+    - 定义清晰的领域异常体系，区分不同类型的文件系统错误
+    - 提供接口抽象，让核心层不依赖具体文件系统实现
+    - 测试时可以注入 Fake，不需要真实文件系统
+    - 符合依赖倒置原则：核心定义接口，适配器提供实现
+
 Java 对照：这里是领域异常 + `interface` 的组合。核心工具只依赖
 `WorkspaceFileSystem`，不直接依赖 `pathlib` 或操作系统 API。
 """
@@ -32,14 +45,41 @@ class FileSystemOperationError(Exception):
 
 
 class WorkspaceWriteBoundary(Protocol):
-    """权限层使用的窄接口，只判断写路径是否仍在工作区。"""
+    """权限层使用的窄接口，只判断写路径是否仍在工作区。
+
+    这是什么：
+        权限策略使用的轻量级接口，只包含路径边界检查方法。
+
+    Java 类比：
+        interface WorkspaceWriteBoundary
+        类似单一职责的窄接口，只做一件事。
+
+    为什么需要：
+        - 权限层只需要检查路径是否安全，不需要完整的文件系统操作
+        - 接口隔离原则：不让权限层依赖完整的 WorkspaceFileSystem
+        - 便于独立测试路径边界检查逻辑
+    """
 
     def is_path_within_workspace(self, workspace: str, relative_path: str) -> bool:
         """安全路径返回 True，路径逃逸返回 False，其他故障向上抛出。"""
 
 
 class WorkspaceFileSystem(WorkspaceWriteBoundary, Protocol):
-    """工作区文件系统接口，类似 Java 的 `WorkspaceFileSystem` interface。"""
+    """工作区文件系统接口，类似 Java 的 `WorkspaceFileSystem` interface。
+
+    这是什么：
+        文件系统操作的核心接口，定义读、写、编辑、glob 方法。
+
+    Java 类比：
+        interface WorkspaceFileSystem extends WorkspaceWriteBoundary
+        类似 Repository 接口，但操作的是文件而非数据库。
+
+    为什么需要：
+        - 核心工具只依赖接口，不直接调用 pathlib
+        - 测试时可以注入 Fake，不需要真实文件系统
+        - 适配器层可以提供不同实现（本地、内存、远程）
+        - 符合接口隔离原则：只暴露工作区所需的最小方法集
+    """
 
     def read_file(self, workspace: str, relative_path: str, limit: int | None = None) -> str:
         """严格读取 UTF-8 文本；limit 按行数限制返回内容。"""

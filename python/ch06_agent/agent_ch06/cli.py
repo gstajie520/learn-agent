@@ -1,4 +1,9 @@
-"""第六章命令行入口：在前五章能力上增加一次性子 Agent。"""
+"""第六章命令行入口：在前五章能力上增加一次性子 Agent。
+
+这是什么：命令行接口（CLI）的主入口
+Java 类比：public static void main(String[] args)
+为什么需要：提供可执行的入口点，连接配置、依赖注入和实际运行
+"""
 
 import argparse
 import sys
@@ -14,7 +19,12 @@ from .core.profiles import P06
 
 
 class TerminalApprovalProvider:
-    """把策略产生的 ask 决策交给终端用户确认。"""
+    """把策略产生的 ask 决策交给终端用户确认。
+
+    这是什么：终端交互式审批提供者
+    Java 类比：@Component class ConsoleApprovalProvider implements ApprovalProvider
+    为什么需要：让用户在终端确认危险操作（如文件写入），实现人工审批流程
+    """
 
     def decide(self, request: PermissionRequest) -> PermissionDecision:
         definition = request.prepared.definition

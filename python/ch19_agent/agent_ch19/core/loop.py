@@ -1,8 +1,9 @@
-"""带 Hook 生命周期的 Agent 核心循环。
+"""带 Hook 生命周期和运行时事件的 Agent 核心循环。
 
+这是什么：第 19 章核心类，在第 4 章 Hook 基础上增加运行时事件支持
 Java 角度：这是应用服务。它按照固定顺序调用模型、Hook、权限策略和工具注册表，
-但不负责创建这些依赖。第四章最重要的约束是：无论 Hook 阻断、异常还是主动停止，
-每个 `tool_call_id` 都必须得到且只得到一条 tool 消息。
+        但不负责创建这些依赖。第 19 章的核心约束是：运行时事件在安全点注入，
+        每个事件必须 ack 确认，失败时保留租约防止丢失
 """
 
 import asyncio
@@ -138,15 +139,53 @@ class ToolContextProvider(Protocol):
 
 
 class RuntimeEventPump(Protocol):
-    """后台事件泵接口。"""
+    """后台事件泵接口。
+
+    这是什么：事件队列的抽象接口，AgentRunner 通过它获取事件
+    Java 类比：interface EventPump { boolean hasWork(); List<Event> drain(); void ack(Event); }
+    为什么需要：让 AgentRunner 不依赖具体实现（EventInbox、TaskStore），方便测试和替换
+    """
 
     @property
-    def has_pending_work(self) -> bool: ...
-    def drain_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]: ...
-    def wait_for_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]: ...
-    def acknowledge_events(self, events: tuple[RuntimeEvent, ...]) -> None: ...
+    def has_pending_work(self) -> bool:
+        """是否有待处理的事件（包括未 ack 的）。
 
-    def release_events(self, events: tuple[RuntimeEvent, ...]) -> None: ...
+        Java 类比：类似 !queue.isEmpty()
+        为什么需要：让主循环知道是否需要等待事件，避免过早返回
+        """
+        ...
+
+    def drain_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]:
+        """非阻塞取事件，立即返回当前队列中的事件。
+
+        Java 类比：List<Event> drain(int limit)
+        为什么需要：循环开始前轮询事件，不阻塞主流程
+        """
+        ...
+
+    def wait_for_events(self, limit: int | None = None) -> tuple[RuntimeEvent, ...]:
+        """阻塞等待事件，直到至少有一条事件或超时。
+
+        Java 类比：List<Event> take(int limit, long timeout)
+        为什么需要：确认有待处理工作时，阻塞等待事件到达
+        """
+        ...
+
+    def acknowledge_events(self, events: tuple[RuntimeEvent, ...]) -> None:
+        """确认事件已处理完成，从持久化存储中删除。
+
+        Java 类比：void ack(List<Event> events)
+        为什么需要：防止重启后重复处理事件，保证至少一次语义
+        """
+        ...
+
+    def release_events(self, events: tuple[RuntimeEvent, ...]) -> None:
+        """释放事件租约，让事件重新进入 ready 状态。
+
+        Java 类比：void release(List<Event> events)
+        为什么需要：处理失败时释放租约，让其他 worker 能重新处理
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,11 +264,11 @@ class AgentRunner:
         self._event_pump = event_pump
         self._resources = resources
         self._tool_context_provider = tool_context_provider
-        self._seen_event_ids: set[str] = set()
-        self._deferred_runtime_events: list[RuntimeEvent] = []
-        # 已写入 history 但 ack 失败的事件。下次 run_events 只重试 ack，不重复调用模型。
+        self._seen_event_ids: set[str] = set()  # 已处理事件的 ID 集合，用于去重
+        self._deferred_runtime_events: list[RuntimeEvent] = []  # 延迟处理的用户上下文事件
+        # 已写入 history 但 ack 失败的事件。下次 run_events 只重试 ack，不重复调用模型
         self._pending_event_acks: dict[str, tuple[RuntimeEvent, RunResult]] = {}
-        self._history: list[ChatMessage] = []
+        self._history: list[ChatMessage] = []  # 对话历史（不包含 system prompt）
 
     @property
     def history(self) -> tuple[ChatMessage, ...]:
@@ -254,44 +293,63 @@ class AgentRunner:
         raise AgentRunError("当前线程已有 asyncio 事件循环，请在同步入口外调用 AgentRunner.run")
 
     def run_events(self) -> RunResult | None:
-        """消费一条运行时事件；事件回合完成后才 ack，ack 失败只重试确认。"""
+        """消费一条运行时事件；事件回合完成后才 ack，ack 失败只重试确认。
+
+        这是什么：事件驱动入口，主循环调用此方法处理一条后台事件
+        Java 类比：public RunResult processNextEvent()，从队列取一条事件处理
+        为什么需要：后台任务完成后通知主循环，而不是直接修改历史
+
+        返回：
+            RunResult: 事件处理完成后的结果
+            None: 当前没有待处理事件
+
+        注意：
+            - 优先重试 ack 失败的事件（不重复调用模型）
+            - ack 失败时保留租约，防止事件丢失
+            - 处理失败时释放租约，让其他 worker 能重新处理
+        """
+        # 第一步：检查是否有 ack 失败的事件，优先重试确认
         if self._pending_event_acks:
             event, result = next(iter(self._pending_event_acks.values()))
             if self._event_pump is not None:
-                self._event_pump.acknowledge_events((event,))
-            self._pending_event_acks.pop(event.event_id, None)
+                self._event_pump.acknowledge_events((event,))  # 重试 ack
+            self._pending_event_acks.pop(event.event_id, None)  # 确认成功后移除
             return result
+        # 第二步：从延迟队列或 event_pump 获取下一条事件
         next_event: RuntimeEvent | None = (
             self._deferred_runtime_events.pop(0) if self._deferred_runtime_events else None
         )
         if next_event is None and self._event_pump is not None:
-            drained = self._event_pump.drain_events(1)
+            drained = self._event_pump.drain_events(1)  # 非阻塞取一条事件
             next_event = drained[0] if drained else None
-        if next_event is None:
+        if next_event is None:  # 没有事件时直接返回 None
             return None
         event = next_event
+        # 第三步：处理事件，确保 ack 机制正确执行
         try:
-            asyncio.get_running_loop()
-        except RuntimeError:
+            asyncio.get_running_loop()  # 检查是否在异步上下文中
+        except RuntimeError:  # 不在异步上下文中，创建新的事件循环
             try:
+                # 调用 _run 处理事件，包装成 user 消息注入循环
                 result = asyncio.run(
                     self._run(
                         getattr(event, "prompt", "处理运行时事件"), event, event.idempotency_key
                     )
                 )
+                # 第四步：处理成功后 ack 确认
                 if self._event_pump is not None:
                     try:
                         self._event_pump.acknowledge_events((event,))
                     except Exception:
-                        # history 和模型调用已经完成，保留事件身份，下一轮只补 ack。
+                        # history 和模型调用已经完成，保留事件身份，下一轮只补 ack
                         self._pending_event_acks[event.event_id] = (event, result)
-                        raise
+                        raise  # 重新抛出异常，让调用方知道 ack 失败
                 return result
             except Exception:
                 # ack 失败时事件仍处于 processing，必须保留租约；否则 release 会让下一轮
                 # 看到 ready 状态，而补 ack 又找不到原来的 processing 文件。
                 if self._event_pump is not None and event.event_id not in self._pending_event_acks:
-                    self._event_pump.release_events((event,))
+                    self._event_pump.release_events((event,))  # 处理失败时释放租约
                 raise
         raise AgentRunError("当前线程已有 asyncio 事件循环，不能调用 AgentRunner.run_events")
 
@@ -516,21 +574,41 @@ class AgentRunner:
         return resolved
 
     def _inject_runtime_events(self, wait_for_pending: bool, *, allow_context_events: bool) -> None:
-        """批量取事件、去重，并作为普通 user 消息追加到历史。"""
-        if self._event_pump is None:
+        """批量取事件、去重，并作为普通 user 消息追加到历史。
+
+        这是什么：事件注入方法，在安全点将事件包装成 user 消息加入历史
+        Java 类比：void injectEvents(boolean waitForPending, boolean allowContext)
+        为什么需要：后台事件不能直接修改历史，需要在消息配对完整后统一注入
+
+        参数：
+            wait_for_pending: 是否阻塞等待待处理事件（模型返回文本后设为 True）
+            allow_context_events: 是否允许注入用户上下文事件（只在处理运行时事件回合时为 True）
+
+        核心逻辑：
+            1. 非阻塞取事件（drain），或阻塞等待（wait）
+            2. 过滤用户上下文事件（context_identity != None）
+            3. 通过 event_id 去重（防止重复处理）
+            4. 包装成 user 消息追加到历史
+        """
+        if self._event_pump is None:  # 没有事件泵时直接返回
             return
-        events = self._event_pump.drain_events()
+        # 第一步：从 event_pump 取事件
+        events = self._event_pump.drain_events()  # 非阻塞取所有就绪事件
         if not events and wait_for_pending and self._event_pump.has_pending_work:
-            events = self._event_pump.wait_for_events()
+            events = self._event_pump.wait_for_events()  # 阻塞等待至少一条事件
+        # 第二步：过滤用户上下文事件
         injectable: list[RuntimeEvent] = []
         for event in events:
+            # 用户上下文事件（context_identity != None）只能在该用户回合注入
             if event.context_identity is not None and not allow_context_events:
-                self._deferred_runtime_events.append(event)
+                self._deferred_runtime_events.append(event)  # 延迟到下次处理
             else:
-                injectable.append(event)
+                injectable.append(event)  # 系统事件或允许的用户上下文事件
+        # 第三步：通过 event_id 去重
         fresh = [event for event in injectable if event.event_id not in self._seen_event_ids]
-        self._seen_event_ids.update(event.event_id for event in fresh)
+        self._seen_event_ids.update(event.event_id for event in fresh)  # 标记为已处理
         total = len(fresh)
+        # 第四步：包装成 user 消息追加到历史
         self._history.extend(
             runtime_event_message(event, index, total) for index, event in enumerate(fresh)
         )

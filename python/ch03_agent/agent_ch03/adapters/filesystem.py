@@ -1,5 +1,9 @@
 ﻿"""本地文件系统适配器。
 
+这是什么：实现 WorkspaceFileSystem 接口，提供路径安全检查和文件操作。
+Java 类比：类似 FileSystemAdapter，属于基础设施层实现。
+为什么需要：隔离 pathlib/os 细节，统一处理路径逃逸、符号链接、Windows 保留名。
+
 这层相当于 Java 的基础设施适配器：把 `pathlib`/`os` 的细节藏起来，
 并在每次操作前检查工作区边界、符号链接和 Windows 保留路径名。
 """

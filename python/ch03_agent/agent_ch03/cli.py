@@ -1,4 +1,9 @@
-﻿"""第三章命令行入口：提供人工审批和终端审计适配器。"""
+﻿"""第三章命令行入口：提供人工审批和终端审计适配器。
+
+这是什么：main() 函数入口，装配 P03 Agent 并提供终端 y/N 审批和 stderr 审计。
+Java 类比：类似 Spring Boot 的 @SpringBootApplication 主类。
+为什么需要：命令行工具需要交互式审批，审计日志输出到 stderr 不污染模型回答。
+"""
 
 import argparse
 import sys

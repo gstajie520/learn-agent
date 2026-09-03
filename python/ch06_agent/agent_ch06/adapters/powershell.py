@@ -1,5 +1,9 @@
 """PowerShell 进程适配器。
 
+这是什么：实现 CommandRunner 接口，封装 PowerShell 命令执行
+Java 类比：@Service class PowerShellRunner implements CommandRunner
+为什么需要：隔离进程管理细节，提供超时控制和输出限制的统一接口
+
 这层相当于 Java 中的 ProcessBuilder 适配器：负责 cwd、超时、stdout/stderr
 收集和输出上限，核心 Agent 不直接接触 subprocess。
 """
