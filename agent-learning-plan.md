@@ -56,7 +56,7 @@
 - 阶段状态：IN_PROGRESS（6 课中前 3 课已完成）
 - 主教材：`code/chapters/ch05`、`ch06`、`ch07`、`ch08`、`ch09`、`ch10`
 - 阶段 5 至 8 的模块与文档路径见下方「已完成内容」，每个模块自带 README 导航
-- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 327 个测试，3 跳过为缺 `REDIS_PASSWORD` 的真实 Redis）
+- 测试/验证命令：`Set-Location '.\learning\agent-java-learning'; $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; mvn -o test`（当前 704 个测试通过，6 跳过为缺 `REDIS_PASSWORD` 的真实 Redis，2 个真实模型调用因本机 PKIX 证书问题排除）
 - 本阶段六课进度与后续计划：
 
 | 课次 | 主题 | 教材 | 状态 | 开工前要先解决的事 |
@@ -114,8 +114,7 @@
 - 四道有序工具边界：prepare（零副作用）→ 破坏性闸门 → 幂等缓存 → 超时执行。破坏性闸门在缓存之前，因为「不执行」不需要缓存
 - 幂等键故意不含 `tool_call_id`（每次都不同，算进去永不命中）；失败结果不缓存，避免一次偶发超时在整个会话里变成永久失败
 - 第五课 15 个测试全绿（`AgentLoopTest` 10 + `ToolCallMemoTest` 5）；`TraceIdGenerator` 接口让 trace id 在测试里可固定
-- 已生成阶段 9 第 1 课：`10-context-engineering` 会话计划。`TodoTracker` 只收完整快照，`beforeModel()` 给请求级临时提醒，`PlanReminderHook` 接进阶段 8 的循环；35 个离线测试
-- 已生成阶段 9 第 2 课：子 Agent。`task` 工具隔离消息历史、共享 Hook 与权限策略、两道防线封死递归委派；13 个离线测试
+- 已完成阶段 9 前 3 课：`10-context-engineering` 的会话计划（35 测试）、子 Agent（13 测试）、Skill 按需加载 + 文件边界层（28 测试），模块累计 81 个离线测试。第 3 课顺带建的 `WorkspaceGuard` 为后三课（产物落盘、文件记忆、动态 Prompt）准备文件系统边界
 
 ## 需要复习
 
@@ -135,9 +134,8 @@
 
 ## 下一阶段
 
-- 阶段 9 第 3 课**Skill 按需加载**（教材 `code/chapters/ch07`）：先扫描摘要、再按名称加载正文。这是把 ch07 从原阶段 10 挪回来的 —— 教材 ch10 的动态 Prompt 直接依赖 SkillRegistry，学第 6 课之前必须先有它
-- 阶段 9 六课的进度：第 1 课会话计划、第 2 课子 Agent **均已完成**，第 3 至 6 课（Skill 按需加载、产物落盘与压缩、文件记忆、动态 Prompt 组装）未开始
-- 第 1 课留下的伏笔已了结：补了 `ToolRoundObserver` 扩展点（教材 ch05 本来就有），提醒改走请求级临时上下文，不再绕 Hook。上期那条「等第 5 课 Provider 解决」的记录是错的，Provider 管的是系统提示组装，不是这个
+- 阶段 9 第 4 课**产物落盘与上下文压缩**（教材 `code/chapters/ch08`、`ch09`）：工具结果写文件、分层裁剪、压缩时不能丢审计记录。文件层已就绪（第 3 课建的），还需补 `validateToolPairing` —— 教材 16 处调用，压缩不能压断 tool 配对
+- 阶段 9 六课的进度：第 1-3 课**已完成**（会话计划、子 Agent、Skill 按需加载 + 文件边界层），第 4-6 课待做（产物落盘与压缩、文件记忆、动态 Prompt 组装）
 - 第 2 课留下的伏笔：子 Agent 只回一句结论，**那句结论没有落盘**。第 4 课把产物写文件之后，委派的结论也该走同一条路 —— 回路径而不是回全文
 - 阶段 5 至 9 的交付明细见「已完成内容」，模块与包路径见各模块 README
 
@@ -539,7 +537,28 @@
   1. 又一次「注释里写死数字」：评估集类注释写着「23 条基线用例」。上期已经因为同样的问题改过一次（15 → 19 → 23），当时的结论就是「不写死」，但那次只改了一处措辞、没把数字彻底删掉。这次直接删掉数字，改成「全部通过」
   2. PowerShell 下 `-Dsurefire.failIfNoSpecifiedTests=false` 必须整体加引号，否则参数在点号处被切断，Maven 报「Unknown lifecycle phase .failIfNoSpecifiedTests=false」
 - 待学习者验收：`lessons/02-subagent.md` 的 7 道验收题，重点是第 1 题（隔离了什么、没隔离什么，为什么不是沙箱）、第 5 题（递归委派哪道防线真正生效）和第 7 题（`shutdown()` 不写会怎样）
-- 下一次主任务：**阶段 9 第 3 课 产物落盘与上下文压缩**（`code/chapters/ch08`、`ch09`）—— 工具结果写文件、分层裁剪、压缩时不能丢审计记录
+- 下一次主任务：**阶段 9 第 3 课 Skill 按需加载**（`code/chapters/ch07`）
+
+### 本期记录：阶段 9 第 3 课（Skill 按需加载 + 文件边界层）—— 前 3 课完成
+
+- 本次目标：让 Agent 只在需要时加载领域规范，而不是把所有 Skill 正文塞进系统提示。同时补上阶段 1-8 一直缺失的路径安全边界（本工程第一次碰文件系统）
+- 阶段调整：ch07 从原阶段 10 挪进阶段 9 作第 3 课。原因是教材 ch10 的动态 Prompt 直接 `import SkillRegistry` —— 学第 6 课之前必须先有第 3 课
+- 核心设计一：**扫描阶段只读 frontmatter，不读正文**。`readFrontmatterOnly` 分块读，遇到第二个 `---` 立刻返回。一个 10 MB 的 SKILL.md 在扫描阶段只被读掉前几百字节。如果图省事写成 `Files.readAllBytes` 再切分，「扫描不读正文」就成了空话
+- 核心设计二：**目录里只有名称和描述**。`SkillSummary` 只有两个字段，如果多出 `body` 会让渲染目录时顺手把正文一起拼进系统提示 —— 那正是「硬塞 Prompt」本身
+- 核心设计三：**双预算：条目数 + 字节数，只整条列出**。只限条目数挡不住「100 个 Skill 每个写 500 字描述」；只限字节数会让目录在某个字节位置被切断，模型看到半行。列半行的后果是模型抄到残缺名字，拿它去调 `load_skill` 必然失败
+- 核心设计四：**name 必须等于目录名**。一个叫 `deploy-guide` 的目录如果能声明自己是 `safe-readonly-guide`，模型以为加载的是后者，实际读到的是前者 —— 这是身份冒充。两者不一致时硬失败，不取其中一个当准
+- 核心设计五：**同名 Skill 必须硬失败**。允许覆盖的话，往工作区里塞一个同名 Skill 就能替换掉一个已有能力的正文，而模型看到的目录条目一字未变
+- **文件边界层 `WorkspaceGuard`**：本工程第一次碰文件系统，必须先建边界。两道关卡：① 词法关（路径归一化 + `..` 遍历检测 + 绝对路径拦截）② 物理关（`toRealPath()` 解析符号链接后再判断前缀）。只过词法关挡不住符号链接绕出去，只过物理关挡不住「先通过再替换成链接」的 TOCTOU
+- 域重映射决定：Java 侧用「场景/设备」域而不是「文件/shell」域，所以没有 `execute` 工具，路径边界在这个域里没有直接对应物。第 3 课顺带建的 `WorkspaceGuard` 是为后三课（产物落盘、文件记忆、动态 Prompt）准备的，它们的机制本体都是文件系统
+- 代码产出：`SkillSummary`、`SkillMetadata`、`SkillLoadResult`、`SkillRegistry`、`SkillDemo`；`WorkspaceGuard`、`PathTraversalException`
+- 测试产出：`SkillRegistryTest` 14 个 + `WorkspaceGuardTest` 14 个，共 28 个全绿全离线
+- 评估集从 26 行扩到 29 行（目录不含正文、加载返回完整正文、同名 Skill 硬失败）
+- 全量：**704 个测试**，0 失败 0 错误，6 跳过（3 真实 Redis 缺 `REDIS_PASSWORD` + 3 其他 Redis）。2 个真实模型调用测试因本机 PKIX 证书问题排除，未计入总数
+- 模块累计：`10-context-engineering` 现有 81 个测试（tracker 25 + 桥接 10 + 子 Agent 13 + 严格字段 5 + Skill 14 + 工作区边界 14）
+- 端到端：`SkillDemo` 五个场景按预期输出，含「预算截断后仍可加载」和「路径遍历被拦」
+- 待学习者验收：`lessons/03-skills.md` 的验收题，重点是第 2 题（为什么扫描必须分块读）、第 5 题（为什么 name 不等于目录名时硬失败）和第 8 题（只过词法关 / 只过物理关各挡不住什么）
+- **阶段 9 前 3 课完整交付**：第 1 课会话计划（35 测试）、第 2 课子 Agent（13 测试）、第 3 课 Skill 按需加载 + 文件边界层（28 测试）
+- 下一次主任务：**阶段 9 第 4 课 产物落盘与上下文压缩**（`code/chapters/ch08`、`ch09`）—— 工具结果写文件、分层裁剪、压缩时不能丢审计记录、`validateToolPairing` 防止压缩压断 tool_call 配对
 
 ### 本期记录：对着教材做重构检查，修掉一个安全回归
 
