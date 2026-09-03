@@ -39,6 +39,11 @@ public abstract class ChatMessage {
         public String getContent() {
             return content;
         }
+
+        @Override
+        public ChatMessage deepCopy() {
+            return new SystemMessage(content);
+        }
     }
 
     /**
@@ -57,6 +62,11 @@ public abstract class ChatMessage {
 
         public String getContent() {
             return content;
+        }
+
+        @Override
+        public ChatMessage deepCopy() {
+            return new UserMessage(content);
         }
     }
 
@@ -99,6 +109,15 @@ public abstract class ChatMessage {
         public List<ToolCall> getToolCalls() {
             return toolCalls;
         }
+
+        @Override
+        public ChatMessage deepCopy() {
+            List<ToolCall> copiedCalls = new ArrayList<>();
+            for (ToolCall call : toolCalls) {
+                copiedCalls.add(new ToolCall(call.getId(), call.getName(), call.getArguments()));
+            }
+            return new AssistantMessage(content, copiedCalls);
+        }
     }
 
     /**
@@ -131,6 +150,11 @@ public abstract class ChatMessage {
         public String getToolCallId() {
             return toolCallId;
         }
+
+        @Override
+        public ChatMessage deepCopy() {
+            return new ToolMessage(content, toolCallId);
+        }
     }
 
     // 工厂方法
@@ -154,4 +178,9 @@ public abstract class ChatMessage {
     public static ToolMessage tool(String content, String toolCallId) {
         return new ToolMessage(content, toolCallId);
     }
+
+    /**
+     * 创建此消息的深拷贝。
+     */
+    public abstract ChatMessage deepCopy();
 }

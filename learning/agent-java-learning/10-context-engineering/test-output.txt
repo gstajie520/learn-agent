@@ -1,0 +1,51 @@
+﻿[WARNING] 
+[WARNING] Some problems were encountered while building the effective settings
+[WARNING] Expected root element 'settings' but found 'mirrors' (position: START_TAG seen <mirrors>... @1:10)  @ C:\Users\Administrator\.m2\settings.xml, line 1, column 10
+[WARNING] 
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------< learn.agent:context-engineering >-------------------
+[INFO] Building context-engineering 1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ context-engineering ---
+[INFO] Deleting E:\cj\study\learn-agent\learning\agent-java-learning\10-context-engineering\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ context-engineering ---
+[INFO] skip non existing resourceDirectory E:\cj\study\learn-agent\learning\agent-java-learning\10-context-engineering\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.10.1:compile (default-compile) @ context-engineering ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 33 source files to E:\cj\study\learn-agent\learning\agent-java-learning\10-context-engineering\target\classes
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /E:/cj/study/learn-agent/learning/agent-java-learning/10-context-engineering/src/main/java/learn/agent/llm/artifact/ArtifactManager.java:[98,14] �Ҳ�������
+  ����:   ���� validatePath(java.nio.file.Path)
+  λ��: ����Ϊlearn.agent.llm.workspace.WorkspaceGuard�ı��� guard
+[ERROR] /E:/cj/study/learn-agent/learning/agent-java-learning/10-context-engineering/src/main/java/learn/agent/llm/artifact/ArtifactManager.java:[118,14] �Ҳ�������
+  ����:   ���� validatePath(java.nio.file.Path)
+  λ��: ����Ϊlearn.agent.llm.workspace.WorkspaceGuard�ı��� guard
+[INFO] 2 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  1.524 s
+[INFO] Finished at: 2026-09-03T11:14:01+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.10.1:compile (default-compile) on project context-engineering: Compilation failure: Compilation failure: 
+[ERROR] /E:/cj/study/learn-agent/learning/agent-java-learning/10-context-engineering/src/main/java/learn/agent/llm/artifact/ArtifactManager.java:[98,14] �Ҳ�������
+[ERROR]   ����:   ���� validatePath(java.nio.file.Path)
+[ERROR]   λ��: ����Ϊlearn.agent.llm.workspace.WorkspaceGuard�ı��� guard
+[ERROR] /E:/cj/study/learn-agent/learning/agent-java-learning/10-context-engineering/src/main/java/learn/agent/llm/artifact/ArtifactManager.java:[118,14] �Ҳ�������
+[ERROR]   ����:   ���� validatePath(java.nio.file.Path)
+[ERROR]   λ��: ����Ϊlearn.agent.llm.workspace.WorkspaceGuard�ı��� guard
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

@@ -40,8 +40,6 @@ import learn.agent.llm.hook.HookRegistry;
 import learn.agent.llm.hook.HookResult;
 import learn.agent.llm.hook.HookedAgentLoop;
 
-import learn.agent.llm.client.ChatMessage;
-
 import learn.agent.llm.plan.ModelClientFactory;
 import learn.agent.llm.plan.SubagentConfig;
 import learn.agent.llm.plan.SubagentTool;
@@ -50,6 +48,12 @@ import learn.agent.llm.plan.ToolRegistryFactory;
 
 import learn.agent.llm.skill.SkillRegistry;
 
+import learn.agent.llm.memory.MemoryRecord;
+import learn.agent.llm.memory.MemorySession;
+import learn.agent.llm.memory.MemoryStore;
+import learn.agent.llm.memory.MemoryType;
+
+import learn.agent.llm.client.ChatMessage;
 import learn.agent.llm.client.FakeModelClient;
 import learn.agent.llm.client.FinishReason;
 import learn.agent.llm.client.ModelClient;
@@ -65,6 +69,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -911,7 +916,7 @@ public class MinimalEvaluationSetTest {
                     return null;
                 }));
 
-        // ---------- 阶段 9 第 3 课：Skill 按需加载 ----------
+        // ---------- 阶段 9 第 3 课：Skill 按需加载 + 文件边界层 ----------
         rows.add(new Row("目录只有名称描述，正文要显式加载", "目录无正文且 load_skill 有正文",
                 () -> {
                     // 这一行守的是本课存在的理由。哪天有人在 renderCatalog 里顺手
@@ -989,6 +994,133 @@ public class MinimalEvaluationSetTest {
                         return null;
                     } finally {
                         deleteRecursively(ws);
+                    }
+                }));
+
+        // ---------- 阶段 9 第 5 课：文件记忆 ----------
+        rows.add(new Row("空存储返回空记忆列表", "records().isEmpty()",
+                () -> {
+                    Path memoryDir = Files.createTempDirectory("eval-memory");
+                    try {
+                        MemoryStore store = new MemoryStore(memoryDir);
+                        if (!store.records().isEmpty()) {
+                            return "空存储应返回空列表，实际：" + store.records().size();
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(memoryDir);
+                    }
+                }));
+
+        rows.add(new Row("追加记忆后能正确读回", "extend 一条后 records 返回一条",
+                () -> {
+                    Path memoryDir = Files.createTempDirectory("eval-memory");
+                    try {
+                        MemoryStore store = new MemoryStore(memoryDir);
+                        MemoryRecord record = new MemoryRecord("test-memory", "测试记忆",
+                                MemoryType.USER, "这是测试内容");
+                        store.extend(Collections.singletonList(record));
+
+                        List<MemoryRecord> records = store.records();
+                        if (records.size() != 1) {
+                            return "期望 1 条记忆，实际：" + records.size();
+                        }
+                        if (!record.equals(records.get(0))) {
+                            return "读回的记忆与写入不一致";
+                        }
+                        if (!Files.exists(memoryDir.resolve("test-memory.md"))) {
+                            return "记忆文件未创建";
+                        }
+                        if (!Files.exists(memoryDir.resolve("manifest.json"))) {
+                            return "manifest 文件未创建";
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(memoryDir);
+                    }
+                }));
+
+        rows.add(new Row("重复名称被拒绝", "第二次 extend 同名抛异常",
+                () -> {
+                    Path memoryDir = Files.createTempDirectory("eval-memory");
+                    try {
+                        MemoryStore store = new MemoryStore(memoryDir);
+                        MemoryRecord record1 = new MemoryRecord("test", "第一条",
+                                MemoryType.USER, "内容1");
+                        store.extend(Collections.singletonList(record1));
+
+                        MemoryRecord record2 = new MemoryRecord("test", "第二条",
+                                MemoryType.USER, "内容2");
+                        try {
+                            store.extend(Collections.singletonList(record2));
+                            return "重复名称必须被拒绝";
+                        } catch (Exception e) {
+                            if (!e.getMessage().contains("test")) {
+                                return "异常应包含重复的名称，实际：" + e.getMessage();
+                            }
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(memoryDir);
+                    }
+                }));
+
+        rows.add(new Row("关键词选择匹配正确记忆", "查询中文关键词能选中对应记忆",
+                () -> {
+                    Path memoryDir = Files.createTempDirectory("eval-memory");
+                    try {
+                        MemoryStore store = new MemoryStore(memoryDir);
+                        MemoryRecord record1 = new MemoryRecord("java-tips", "Java 编程技巧",
+                                MemoryType.USER, "Java 相关内容");
+                        MemoryRecord record2 = new MemoryRecord("python-tips", "Python 编程技巧",
+                                MemoryType.USER, "Python 相关内容");
+                        store.extend(Arrays.asList(record1, record2));
+
+                        MemorySession session = new MemorySession(store, null, null, null,
+                                5, 10, true);
+                        session.beginTurn("如何使用 Java");
+
+                        List<MemoryRecord> selected = session.getSelected();
+                        if (selected.size() != 1) {
+                            return "期望选中 1 条记忆，实际：" + selected.size();
+                        }
+                        if (!"java-tips".equals(selected.get(0).getName())) {
+                            return "应选中 java-tips，实际：" + selected.get(0).getName();
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(memoryDir);
+                    }
+                }));
+
+        rows.add(new Row("beforeModel 注入选中记忆", "选中记忆生成 system 消息",
+                () -> {
+                    Path memoryDir = Files.createTempDirectory("eval-memory");
+                    try {
+                        MemoryStore store = new MemoryStore(memoryDir);
+                        MemoryRecord record = new MemoryRecord("test-memory", "测试记忆",
+                                MemoryType.USER, "记忆内容");
+                        store.extend(Collections.singletonList(record));
+
+                        MemorySession session = new MemorySession(store,
+                                (query, catalog) -> "[\"test-memory\"]", null, null, 5, 10, true);
+                        session.beginTurn("测试");
+
+                        List<learn.agent.llm.artifact.ChatMessage> messages = session.beforeModel();
+                        if (messages.size() != 1) {
+                            return "期望注入 1 条消息，实际：" + messages.size();
+                        }
+                        learn.agent.llm.artifact.ChatMessage.SystemMessage systemMessage =
+                                (learn.agent.llm.artifact.ChatMessage.SystemMessage) messages.get(0);
+                        if (!systemMessage.getContent().contains("test-memory")) {
+                            return "system 消息应包含记忆名称";
+                        }
+                        if (!systemMessage.getContent().contains("记忆内容")) {
+                            return "system 消息应包含记忆正文";
+                        }
+                        return null;
+                    } finally {
+                        deleteRecursively(memoryDir);
                     }
                 }));
 
