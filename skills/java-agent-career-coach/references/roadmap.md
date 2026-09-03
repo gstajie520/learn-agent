@@ -1,4 +1,4 @@
-# 阶段参考：16 阶段路线摘要
+# 阶段参考：17 阶段路线摘要
 
 > **本文件不是独立路线。** 唯一权威路线是仓库根目录的 `agent-engineer-roadmap.md`，
 > 唯一进度档案是 `agent-learning-plan.md`。三份文件使用**同一套阶段编号**，
@@ -18,14 +18,15 @@
 | 6 | Structured Output 与 Tool Calling | ch02 | Python 先，Java 后 |
 | 7 | 手写 Agent Loop 与工具边界 | ch01、ch02 | TypeScript/Python 读，Java 重写 |
 | 8 | 权限、Hook 与安全边界 | ch03、ch04 | 本仓库章节代码 |
-| 9 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | 本仓库章节代码 |
-| 10 | RAG 与向量检索 | —（需自写，教材无独立章节） | Python |
-| 11 | API 韧性与任务系统 | ch11–ch14 | 本仓库章节代码 |
-| 12 | LangGraph 状态与工作流 | — | Python |
-| 13 | Java Agent 集成 | — | Java（Spring AI） |
-| 14 | 分布式 Agent 后端 | — | Java |
-| 15 | MCP、动态工具池与多 Agent | ch15–ch19 | 本仓库章节代码 |
-| 16 | 综合项目、评估与求职 | ch20 + `fw` | Java + Python |
+| 9 | Java 并发深化 | — | Java（CompletableFuture、Reactor） |
+| 10 | 上下文工程：计划、压缩、记忆、按需加载 | ch05、ch06、ch07、ch08、ch09、ch10 | 本仓库章节代码 |
+| 11 | RAG 与向量检索 | —（需自写，教材无独立章节） | Python |
+| 12 | API 韧性与任务系统 | ch11–ch14 | 本仓库章节代码 |
+| 13 | LangGraph 状态与工作流 | — | Python |
+| 14 | Java Agent 集成 | — | Java（Spring AI） |
+| 15 | 分布式 Agent 后端 | — | Java |
+| 16 | MCP、动态工具池与多 Agent | ch15–ch19 | 本仓库章节代码 |
+| 17 | 综合项目、评估与求职 | ch20 + `fw` | Java + Python |
 
 ## 每阶段固定学习顺序
 
@@ -41,7 +42,7 @@
 
 ## 主教材使用规则
 
-阶段 7-11 和 15 以本仓库 20 章教程为主教材，不要绕过它去找外部资料：
+阶段 7-12 和 16 以本仓库 20 章教程为主教材，不要绕过它去找外部资料：
 
 - 文章：仓库根目录 `NN. <标题>（Agent架构实操NN）.md` 与对应 `（Python版）.md`
 - TypeScript 代码：`code/chapters/chNN/src/` 与 `tests/`
@@ -80,7 +81,7 @@ npm run test:chNN
 
 不要跳过 Python 直接写 Java；也不要停在 Python 不回到 Java，目标岗位是 Java 侧。
 
-阶段 12 用 Python（LangGraph 生态和采用率明显高于 Java 图编排）。阶段 13-14 回到 Java。
+阶段 13 用 Python（LangGraph 生态和采用率明显高于 Java 图编排）。阶段 14-15 回到 Java。
 
 ## 优先级调整
 
