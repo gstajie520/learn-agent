@@ -97,33 +97,33 @@ class OpenAIChatModel(ModelClient):
 
 
 def _to_openai_message(message: Any) -> dict[str, Any]:
-    “””把内部 dataclass 消息转换成供应商要求的字典格式。
+    """把内部 dataclass 消息转换成供应商要求的字典格式。
 
     这是什么：消息格式转换的私有辅助函数
     Java 类比：private static Map<String, Object> toOpenAIMessage(ChatMessage message)
     为什么需要：核心层用 dataclass，OpenAI SDK 要求 dict，需要格式转换
 
     Java 对照：类似把内部 DTO 映射成第三方 SDK Request DTO。
-    函数名前面的单下划线表示”仅供本模块内部使用”，近似 Java 的 private 方法约定。
-    “””
+    函数名前面的单下划线表示"仅供本模块内部使用"，近似 Java 的 private 方法约定。
+    """
     # system 和 user 消息格式相同：只有 role 和 content 两个字段
-    if message.role in {“system”, “user”}:
-        return {“role”: message.role, “content”: message.content}
+    if message.role in {"system", "user"}:
+        return {"role": message.role, "content": message.content}
 
     # tool 消息需要额外的 tool_call_id 字段，用于和前面的 assistant 调用配对
-    if message.role == “tool”:
-        return {“role”: “tool”, “content”: message.content, “tool_call_id”: message.tool_call_id}
+    if message.role == "tool":
+        return {"role": "tool", "content": message.content, "tool_call_id": message.tool_call_id}
 
     # assistant 消息可能包含普通文本或工具调用（或两者都有）
-    result: dict[str, Any] = {“role”: “assistant”, “content”: message.content}
+    result: dict[str, Any] = {"role": "assistant", "content": message.content}
 
     # 有工具调用时，转换成 OpenAI 要求的嵌套格式
     if message.tool_calls:
-        result[“tool_calls”] = [
+        result["tool_calls"] = [
             {
-                “id”: call.id,  # 唯一调用 ID，工具结果需要引用它
-                “type”: “function”,  # OpenAI 固定要求的 type 字段
-                “function”: {“name”: call.name, “arguments”: call.arguments}  # 工具名和 JSON 参数
+                "id": call.id,  # 唯一调用 ID，工具结果需要引用它
+                "type": "function",  # OpenAI 固定要求的 type 字段
+                "function": {"name": call.name, "arguments": call.arguments}  # 工具名和 JSON 参数
             }
             for call in message.tool_calls
         ]

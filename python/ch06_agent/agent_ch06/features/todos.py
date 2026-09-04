@@ -75,42 +75,42 @@ def _serialize_snapshot(todos: Sequence[TodoItem]) -> str:
 
 
 class TodoTracker:
-    “””保存当前完整计划，并统计连续未更新计划的工具轮。
+    """保存当前完整计划，并统计连续未更新计划的工具轮。
 
     这是什么：实现 ToolRoundObserver 协议的会话级状态管理器
     Java 类比：@Service class TodoTracker implements ToolRoundObserver { private List<TodoItem> todos; }
     为什么需要：在模型长时间使用工具但不更新计划时自动提醒，避免计划与实际进度脱节
-    “””
+    """
 
     def __init__(self) -> None:
         self._todos: tuple[TodoItem, ...] = ()  # 不可变快照，外部只能整体替换
         self._non_todo_tool_rounds = 0  # 连续未调用 todo_write 的工具轮数
         self.tool_definition = ToolDefinition(
-            “todo_write”,
-            “用完整任务快照替换当前 TODO 列表；计划变化时需要重新提交全部条目。”,
+            "todo_write",
+            "用完整任务快照替换当前 TODO 列表；计划变化时需要重新提交全部条目。",
             {
-                “type”: “object”,
-                “properties”: {
-                    “todos”: {
-                        “type”: “array”,
-                        “maxItems”: MAX_TODOS,
-                        “items”: {
-                            “type”: “object”,
-                            “properties”: {
-                                “content”: {“type”: “string”, “minLength”: 1},
-                                “status”: {“type”: “string”, “enum”: list(TODO_STATUSES)},
+                "type": "object",
+                "properties": {
+                    "todos": {
+                        "type": "array",
+                        "maxItems": MAX_TODOS,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "content": {"type": "string", "minLength": 1},
+                                "status": {"type": "string", "enum": list(TODO_STATUSES)},
                             },
-                            “required”: [“content”, “status”],
-                            “additionalProperties”: False,
+                            "required": ["content", "status"],
+                            "additionalProperties": False,
                         },
                     }
                 },
-                “required”: [“todos”],
-                “additionalProperties”: False,
+                "required": ["todos"],
+                "additionalProperties": False,
             },
-            # 这里的 write 表示”修改会话状态”，不是写磁盘。第三章审批规则只匹配
+            # 这里的 write 表示"修改会话状态"，不是写磁盘。第三章审批规则只匹配
             # write_file/edit_file，因此 todo_write 不会错误地弹出文件审批。
-            “write”,
+            "write",
             self._write_todos,  # 工具执行器函数
             _validate_todo_input,  # 自定义校验器
         )

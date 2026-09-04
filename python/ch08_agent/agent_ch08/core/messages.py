@@ -28,27 +28,27 @@ class MessageContractError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class ToolCall:
-    “””模型发出的”请程序帮我调用某个工具”的请求。
+    """模型发出的"请程序帮我调用某个工具"的请求。
 
     这是什么：封装工具调用请求的值对象
     Java 类比：类似 record ToolCall(String id, String name, String arguments)
     为什么需要：结构化表示模型的工具调用请求，确保 ID、名称和参数的完整性
-    “””
+    """
 
     id: str  # 本次调用唯一编号，用来和后面的 ToolMessage 配对。
     name: str  # 工具名称，例如 shell。
     arguments: str  # 模型生成的 JSON 字符串，必须在工具层再次校验。
 
     def __post_init__(self) -> None:
-        “””构造后验证所有字段都是非空字符串。
+        """构造后验证所有字段都是非空字符串。
 
         这是什么：dataclass 的构造后验证钩子
         Java 类比：类似 compact constructor 中的参数校验
         为什么需要：确保从模型收到的字段都符合预期类型和格式
-        “””
-        _require_string(self.id, “tool call id”)
-        _require_string(self.name, “tool call name”)
-        _require_string(self.arguments, “tool call arguments”, allow_empty=True)
+        """
+        _require_string(self.id, "tool call id")
+        _require_string(self.name, "tool call name")
+        _require_string(self.arguments, "tool call arguments", allow_empty=True)
 
 
 @dataclass(frozen=True, slots=True)

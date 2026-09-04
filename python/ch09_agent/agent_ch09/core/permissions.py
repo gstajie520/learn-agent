@@ -1,12 +1,12 @@
-“””权限策略领域模型。
+"""权限策略领域模型。
 
 Java 对照：这里相当于一个独立的 Policy Service 模块，包含不可变 DTO、
-规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答”能不能执行”。
+规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答"能不能执行"。
 
 这是什么：权限控制系统的领域模型，定义规则、决策和审批流程
 Java 类比：类似 Spring Security 的授权模块或自定义权限策略引擎
 为什么需要：让工具执行受到细粒度的权限控制，支持规则链和人工审批
-“””
+"""
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -16,27 +16,27 @@ from .filesystem import WorkspaceWriteBoundary
 from .tools import PreparedToolCall, ToolContext, ToolResult, tool_error
 
 # 权限行为：四种状态
-PermissionBehavior = Literal[“allow”, “deny”, “ask”, “passthrough”]
-PERMISSION_BEHAVIORS: tuple[PermissionBehavior, ...] = (“allow”, “deny”, “ask”, “passthrough”)
+PermissionBehavior = Literal["allow", "deny", "ask", "passthrough"]
+PERMISSION_BEHAVIORS: tuple[PermissionBehavior, ...] = ("allow", "deny", "ask", "passthrough")
 
 
 class PermissionContractError(Exception):
-    “””权限请求、规则或决策违反领域契约。
+    """权限请求、规则或决策违反领域契约。
 
     这是什么：权限系统的契约校验异常
     Java 类比：类似 SecurityException 或自定义 PermissionException
     为什么需要：确保权限数据的完整性和正确性
-    “””
+    """
 
 
 def _is_behavior(value: object) -> bool:
-    “””检查值是否是合法的权限行为。”””
+    """检查值是否是合法的权限行为。"""
     return value in PERMISSION_BEHAVIORS
 
 
 @dataclass(frozen=True, slots=True)
 class PermissionDecision:
-    “””一次权限结论：行为、解释原因和决策来源。
+    """一次权限结论：行为、解释原因和决策来源。
 
     这是什么：权限决策的结果对象
     Java 类比：类似 record PermissionDecision(Behavior behavior, String reason, String source)
@@ -46,24 +46,24 @@ class PermissionDecision:
         behavior: 四态行为（allow/deny/ask/passthrough），最终只有 allow/deny 可执行
         reason: 给用户、模型和审计记录看的非空解释
         source: 规则名、审批器名或决策来源标识
-    “””
+    """
 
     behavior: PermissionBehavior  # 权限行为
     reason: str  # 决策原因
     source: str  # 决策来源
 
     def __post_init__(self) -> None:
-        “””创建后立即校验字段合法性。”””
+        """创建后立即校验字段合法性。"""
         if not _is_behavior(self.behavior):
-            raise PermissionContractError(“behavior 必须是受支持的权限行为”)
+            raise PermissionContractError("behavior 必须是受支持的权限行为")
         if not isinstance(self.reason, str) or not self.reason.strip():
-            raise PermissionContractError(“权限决策原因不能为空”)
+            raise PermissionContractError("权限决策原因不能为空")
         if not isinstance(self.source, str) or not self.source.strip():
-            raise PermissionContractError(“权限决策来源不能为空”)
+            raise PermissionContractError("权限决策来源不能为空")
 
     @property
     def is_allowed(self) -> bool:
-        “””判断是否允许执行。
+        """判断是否允许执行。
 
         这是什么：权限判断的便捷属性
         Java 类比：类似 boolean isAllowed()
@@ -71,11 +71,11 @@ class PermissionDecision:
 
         返回：
             bool: True 表示允许执行
-        “””
-        return self.behavior == “allow”
+        """
+        return self.behavior == "allow"
 
     def to_tool_result(self) -> ToolResult:
-        “””把最终 deny 决策转换成模型可见的工具错误结果。
+        """把最终 deny 决策转换成模型可见的工具错误结果。
 
         这是什么：权限拒绝的结果转换方法
         Java 类比：类似 ToolResult toToolError()
@@ -86,15 +86,15 @@ class PermissionDecision:
 
         异常：
             PermissionContractError: 非 deny 决策不能转换
-        “””
-        if self.behavior != “deny”:
-            raise PermissionContractError(“只有最终 deny 决策才能转换成工具结果”)
-        return tool_error(“permission_denied”, self.reason)
+        """
+        if self.behavior != "deny":
+            raise PermissionContractError("只有最终 deny 决策才能转换成工具结果")
+        return tool_error("permission_denied", self.reason)
 
 
 @dataclass(frozen=True, slots=True)
 class PermissionRequest:
-    “””权限策略输入快照，必须包含已经通过工具参数校验的调用。
+    """权限策略输入快照，必须包含已经通过工具参数校验的调用。
 
     这是什么：权限检查的请求对象
     Java 类比：类似 record PermissionRequest(PreparedToolCall prepared, ...)
@@ -105,7 +105,7 @@ class PermissionRequest:
         context: 工作区和调用身份边界
         recommendations: 上游 hook 提供的候选建议
         proposed_decision: 交给审批器确认的 ask 决策
-    “””
+    """
 
     prepared: PreparedToolCall  # 准备好的工具调用
     context: ToolContext  # 执行上下文
@@ -113,41 +113,41 @@ class PermissionRequest:
     proposed_decision: PermissionDecision | None = None  # 待审批决策
 
     def __post_init__(self) -> None:
-        “””创建后立即校验请求的完整性。”””
+        """创建后立即校验请求的完整性。"""
         # 确保工具调用已准备完成
         if (
             self.prepared.error is not None
             or self.prepared.definition is None
             or self.prepared.arguments is None
         ):
-            raise PermissionContractError(“权限请求必须包含准备完成的工具调用”)
+            raise PermissionContractError("权限请求必须包含准备完成的工具调用")
 
         # 确保建议列表只包含决策对象
         if not isinstance(self.recommendations, tuple) or not all(
             isinstance(item, PermissionDecision) for item in self.recommendations
         ):
-            raise PermissionContractError(“recommendations 必须全部是 PermissionDecision”)
+            raise PermissionContractError("recommendations 必须全部是 PermissionDecision")
 
         # 确保待审批决策是 ask 类型
         if self.proposed_decision is not None and (
             not isinstance(self.proposed_decision, PermissionDecision)
-            or self.proposed_decision.behavior != “ask”
+            or self.proposed_decision.behavior != "ask"
         ):
-            raise PermissionContractError(“proposed_decision 必须是 ask 决策”)
+            raise PermissionContractError("proposed_decision 必须是 ask 决策")
 
 
 PermissionMatcher = Callable[[PermissionRequest], bool]
-“””权限匹配器签名：判断请求是否匹配规则。
+"""权限匹配器签名：判断请求是否匹配规则。
 
 这是什么：权限规则匹配函数的类型签名
 Java 类比：类似 Predicate<PermissionRequest>
 为什么需要：定义规则匹配的统一接口
-“””
+"""
 
 
 @dataclass(frozen=True, slots=True)
 class PermissionRule:
-    “””把匹配条件、行为和解释原因绑定在一起的不可变规则。
+    """把匹配条件、行为和解释原因绑定在一起的不可变规则。
 
     这是什么：权限规则的定义对象
     Java 类比：类似 record PermissionRule(String name, Behavior behavior, ...)
@@ -158,7 +158,7 @@ class PermissionRule:
         behavior: 匹配成功时提出的候选行为
         reason: 规则为什么提出这个行为
         matches: 匹配函数，类似 Java Predicate<PermissionRequest>
-    “””
+    """
 
     name: str  # 规则名称
     behavior: PermissionBehavior  # 候选行为
@@ -166,17 +166,17 @@ class PermissionRule:
     matches: PermissionMatcher  # 匹配函数
 
     def __post_init__(self) -> None:
-        “””创建后立即校验规则字段的合法性。”””
+        """创建后立即校验规则字段的合法性。"""
         if (
             not self.name.strip()
             or not self.reason.strip()
             or not callable(self.matches)
             or not _is_behavior(self.behavior)
         ):
-            raise PermissionContractError(“权限规则字段不合法”)
+            raise PermissionContractError("权限规则字段不合法")
 
     def evaluate(self, request: PermissionRequest) -> PermissionDecision | None:
-        “””评估规则是否匹配请求。
+        """评估规则是否匹配请求。
 
         这是什么：规则评估方法
         Java 类比：类似 Optional<PermissionDecision> evaluate(PermissionRequest)
@@ -187,22 +187,22 @@ class PermissionRule:
 
         返回：
             PermissionDecision | None: 匹配成功返回带来源的候选决策，不匹配返回 None
-        “””
+        """
         if not self.matches(request):
             return None
         return PermissionDecision(self.behavior, self.reason, self.name)
 
 
 class ApprovalProvider(Protocol):
-    “””审批边界，将 ask 决策收敛成明确的 allow 或 deny。
+    """审批边界，将 ask 决策收敛成明确的 allow 或 deny。
 
     这是什么：审批提供者接口
     Java 类比：interface ApprovalProvider { Decision decide(Request req); }
     为什么需要：支持人工审批或其他审批机制，将待定决策转为最终决策
-    “””
+    """
 
     def decide(self, request: PermissionRequest) -> PermissionDecision:
-        “””将 ask 决策收敛成明确的 allow 或 deny。
+        """将 ask 决策收敛成明确的 allow 或 deny。
 
         这是什么：审批决策方法
         Java 类比：类似 PermissionDecision approve(PermissionRequest)
@@ -213,19 +213,19 @@ class ApprovalProvider(Protocol):
 
         返回：
             PermissionDecision: 明确的 allow 或 deny 决策
-        “””
+        """
 
 
 class AuditSink(Protocol):
-    “””审计边界，记录最终权限决策，失败时阻止工具执行。
+    """审计边界，记录最终权限决策，失败时阻止工具执行。
 
     这是什么：审计日志接收器接口
     Java 类比：interface AuditSink { void record(Request, Decision); }
     为什么需要：记录所有权限决策，便于审计和追溯
-    “””
+    """
 
     def record(self, request: PermissionRequest, decision: PermissionDecision) -> None:
-        “””记录一次最终权限决定。
+        """记录一次最终权限决定。
 
         这是什么：审计记录方法
         Java 类比：类似 void audit(PermissionRequest, PermissionDecision)
@@ -237,7 +237,7 @@ class AuditSink(Protocol):
 
         异常：
             记录失败时应该阻止工具执行（抛出异常）
-        “””
+        """
 
 
 def _strongest(decisions: Sequence[PermissionDecision]) -> PermissionDecision:

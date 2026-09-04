@@ -1,4 +1,4 @@
-“””模型边界契约。
+"""模型边界契约。
 
 这是什么：
     定义核心层与模型适配器之间的接口和异常契约。
@@ -16,7 +16,7 @@ Java 类比：
     - ModelClient 接口：统一的模型请求方法
     - ModelAPIError 系列：供应商无关的领域异常
     - ModelRequest/ModelReply：不可变的请求/响应 DTO
-“””
+"""
 
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol

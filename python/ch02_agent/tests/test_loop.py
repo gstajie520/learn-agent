@@ -38,7 +38,7 @@ class FakeCommandRunner:
 
 
 def test_loop_executes_tool_then_returns_final_text(tmp_path):
-    """本章最重要的测试：完整演示“模型 -> 工具 -> 模型”的两轮闭环。"""
+    """本章最重要的测试：完整演示"模型 -> 工具 -> 模型"的两轮闭环。"""
     # 第一次模型回答不提供最终文本，而是要求调用 shell。
     # 第二次模型已经看到了工具结果，所以给出最终中文回答。
     model = FakeModel([

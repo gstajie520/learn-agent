@@ -67,11 +67,6 @@ def _relative_parts(value: str, label: str, allow_wildcards: bool = False) -> li
     Java 类比：类似 static List<String> parseRelativePath(String path, boolean allowWildcards)
     为什么需要：防止目录遍历攻击，拒绝绝对路径和父目录引用
     """
-
-    这是什么：路径安全解析器，将用户输入路径拆分为标准化组件
-    Java 类比：类似 static List<String> parseRelativePath(String input) throws PathException
-    为什么需要：防止路径遍历攻击（../ 逃逸）和绝对路径注入，确保所有操作限制在工作区内
-    """
     if not value:  # 空路径直接拒绝
         raise WorkspacePathError(f"{label} 不能为空")
     normalized = value.replace("\\", "/")  # 统一使用 POSIX 风格斜杠
@@ -217,32 +212,32 @@ class LocalWorkspaceFileSystem(WorkspaceFileSystem):
         为什么需要：提供安全的文件搜索能力，防止符号链接逃逸，保证结果顺序稳定便于测试
         """
         root = _workspace_root(workspace)  # 获取并验证工作区根目录
-        parts = _relative_parts(pattern, “glob 模式”, allow_wildcards=True)  # 允许通配符的路径解析
-        normalized = “/”.join(parts) if parts else “.”  # 拼接为标准化模式
+        parts = _relative_parts(pattern, "glob 模式", allow_wildcards=True)  # 允许通配符的路径解析
+        normalized = "/".join(parts) if parts else "."  # 拼接为标准化模式
         # 第一个通配符之前是确定路径，必须先走 safe_path。
         # 例如 escape/*.txt 中 escape 若是指向工作区外的链接，应明确报错，
-        # 不能因为遍历时跳过链接就伪装成”没有匹配”。
+        # 不能因为遍历时跳过链接就伪装成"没有匹配"。
         literal_parts: list[str] = []  # 提取字面路径前缀
         for part in parts:
-            if any(char in part for char in “*?[“):  # 遇到通配符就停止
+            if any(char in part for char in "*?["):  # 遇到通配符就停止
                 break
             literal_parts.append(part)
         if literal_parts:  # 有字面前缀时先做路径安全检查
-            safe_path(workspace, “/”.join(literal_parts))
+            safe_path(workspace, "/".join(literal_parts))
         results: list[str] = []  # 存储匹配结果
-        for path in root.rglob(“*”):  # 递归遍历工作区所有路径
+        for path in root.rglob("*"):  # 递归遍历工作区所有路径
             if path.is_symlink():  # 不跟随符号链接，避免 glob 递归到工作区外
                 continue
             relative = path.relative_to(root).as_posix()  # 转为相对路径和 POSIX 格式
             matches = fnmatch.fnmatchcase(relative, normalized)  # 大小写敏感匹配
-            # Python fnmatch 不把 `**/` 解释为”零层或多层目录”，
+            # Python fnmatch 不把 `**/` 解释为"零层或多层目录"，
             # 因此额外尝试去掉前缀，保证 `**/*.txt` 也匹配根目录文件。
-            if normalized.startswith(“**/”):  # 特殊处理 **/ 前缀
+            if normalized.startswith("**/"):  # 特殊处理 **/ 前缀
                 matches = matches or fnmatch.fnmatchcase(relative, normalized[3:])
             if path.is_file() and matches:  # 只收集匹配的文件（不包含目录）
                 safe_path(workspace, relative)  # 再次验证结果路径的安全性
                 results.append(relative)
-        if not results and not any(char in normalized for char in “*?[“):  # 无通配符且无结果时尝试直接匹配
+        if not results and not any(char in normalized for char in "*?["):  # 无通配符且无结果时尝试直接匹配
             candidate = root / normalized
             if candidate.exists() and candidate.is_file():  # 如果是已存在的文件就返回
                 results.append(normalized)

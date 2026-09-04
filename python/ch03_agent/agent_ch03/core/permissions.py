@@ -1,12 +1,12 @@
-﻿“””权限策略领域模型。
+﻿"""权限策略领域模型。
 
 这是什么：定义权限决策、规则评估、审批收敛、审计记录的完整流程。
 Java 类比：类似独立的 PermissionService 模块，结合策略模式和责任链模式。
 为什么需要：shell 和文件工具可能破坏系统，需要多层防护和审计追溯。
 
 Java 对照：这里相当于一个独立的 Policy Service 模块，包含不可变 DTO、
-规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答”能不能执行”。
-“””
+规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答"能不能执行"。
+"""
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass

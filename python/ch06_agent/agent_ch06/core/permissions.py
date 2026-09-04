@@ -1,12 +1,12 @@
-“””权限策略领域模型。
+"""权限策略领域模型。
 
 这是什么：第三章引入的权限管理系统
 Java 类比：@Service class PermissionPolicy + 规则引擎 + 审批流程
 为什么需要：让工具调用受到规则和人工审批的控制，避免危险操作直接执行
 
 Java 对照：这里相当于一个独立的 Policy Service 模块，包含不可变 DTO、
-规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答”能不能执行”。
-“””
+规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答"能不能执行"。
+"""
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass

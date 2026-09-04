@@ -1,12 +1,12 @@
-“””模型边界契约。
+"""模型边界契约。
 
 这是什么：定义模型调用接口和数据结构的核心模块
 Java 类比：类似 ModelClient 接口和相关的 DTO 类
 为什么需要：抽象模型调用细节，让核心逻辑不依赖具体的 SDK 或 API
 
-这里故意不导入 OpenAI SDK。核心循环只知道”有一个对象能完成一次模型请求”，
+这里故意不导入 OpenAI SDK。核心循环只知道"有一个对象能完成一次模型请求"，
 这就像 Java Service 只依赖 `ModelClient` 接口，而不是直接依赖某个厂商 SDK。
-“””
+"""
 
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol

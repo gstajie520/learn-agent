@@ -1,12 +1,12 @@
-“””模型边界契约。
+"""模型边界契约。
 
 这是什么：定义与大语言模型交互的接口和数据结构
 Java 类比：interface ModelClient，遵循依赖倒置原则
 为什么需要：隔离模型实现细节，核心循环不依赖具体的 SDK（OpenAI、DeepSeek等）
 
-这里故意不导入 OpenAI SDK。核心循环只知道”有一个对象能完成一次模型请求”，
+这里故意不导入 OpenAI SDK。核心循环只知道"有一个对象能完成一次模型请求"，
 这就像 Java Service 只依赖 `ModelClient` 接口，而不是直接依赖某个厂商 SDK。
-“””
+"""
 
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol

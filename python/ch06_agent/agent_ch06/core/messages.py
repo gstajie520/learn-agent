@@ -11,11 +11,11 @@ Java 对照：这里的 dataclass 就像 Java 的 record，专门保存数据。
 from dataclasses import dataclass
 from typing import Literal
 
-Role = Literal[“system”, “user”, “assistant”, “tool”]  # 四种消息角色
+Role = Literal["system", "user", "assistant", "tool"]  # 四种消息角色
 
 
 class MessageContractError(Exception):
-    “””消息历史违反工具调用配对契约。
+    """消息历史违反工具调用配对契约。
 
     这是什么：消息格式和配对规则违反的专用异常
     Java 类比：类似 IllegalStateException 或 ContractViolationException
@@ -23,31 +23,31 @@ class MessageContractError(Exception):
 
     把错误单独定义成一个类型，等价于 Java 中自定义业务异常，
     这样上层可以准确判断是消息格式错了，而不是网络错了。
-    “””
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCall:
-    “””模型发出的”请程序帮我调用某个工具”的请求。
+    """模型发出的"请程序帮我调用某个工具"的请求。
 
     这是什么：模型请求调用工具的数据对象
     Java 类比：record ToolCall(String id, String name, String arguments)
     为什么需要：封装工具调用的三要素（ID用于配对、名称、参数JSON）
-    “””
+    """
 
     id: str  # 本次调用唯一编号，用来和后面的 ToolMessage 配对。
     name: str  # 工具名称，例如 shell。
     arguments: str  # 模型生成的 JSON 字符串，必须在工具层再次校验。
 
     def __post_init__(self) -> None:
-        _require_string(self.id, “tool call id”)
-        _require_string(self.name, “tool call name”)
-        _require_string(self.arguments, “tool call arguments”, allow_empty=True)
+        _require_string(self.id, "tool call id")
+        _require_string(self.name, "tool call name")
+        _require_string(self.arguments, "tool call arguments", allow_empty=True)
 
 
 @dataclass(frozen=True, slots=True)
 class SystemMessage:
-    “””系统提示词：告诉模型它是谁、应该如何工作。
+    """系统提示词：告诉模型它是谁、应该如何工作。
 
     这是什么：系统角色消息，定义 Agent 的身份和行为规则
     Java 类比：record SystemMessage(String content)

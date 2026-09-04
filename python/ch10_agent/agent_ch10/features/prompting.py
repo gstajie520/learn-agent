@@ -357,7 +357,7 @@ def _stable_json(value: JsonValue) -> str:
     为什么需要：作为缓存键必须保证稳定性，不同构建路径不影响结果
 
     配置：
-        ensure_ascii=False: 保留 Unicode 字符（不转义为 \uXXXX）
+        ensure_ascii=False: 保留 Unicode 字符（不转义为 \\uXXXX）
         allow_nan=False: 拒绝 NaN/Infinity（已在 _normalize_json_value 阶段拒绝）
         separators=(",", ":"): 紧凑格式，无空格
         sort_keys=True: 键排序，保证稳定性

@@ -103,9 +103,9 @@ def build_agent(
         else None
     )
     # 第九章把记忆实现成生命周期组件，而不是普通 Tool。这样模型只能通过
-    # 无工具 side-query 建议”选什么、记什么”，不能直接写 .memory 文件。
+    # 无工具 side-query 建议"选什么、记什么"，不能直接写 .memory 文件。
     memory_session: MemorySession | None = None
-    if “memory” in profile.capabilities:
+    if "memory" in profile.capabilities:
         memory_queries = ModelMemoryQueries(model)
         memory_session = MemorySession(
             MemoryStore(workspace),
@@ -113,7 +113,7 @@ def build_agent(
             extractor=memory_queries,
             consolidator=memory_queries,
             # 第 10 章：有 dynamic_prompt 时不再通过消息注入记忆，而是放入 System Prompt
-            emit_context_messages=”dynamic_prompt” not in profile.capabilities,
+            emit_context_messages="dynamic_prompt" not in profile.capabilities,
         )
     if "subagent" in profile.capabilities:
         if policy is None:

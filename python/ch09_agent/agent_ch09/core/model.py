@@ -1,12 +1,12 @@
-“””模型边界契约。
+"""模型边界契约。
 
-这里故意不导入 OpenAI SDK。核心循环只知道”有一个对象能完成一次模型请求”，
+这里故意不导入 OpenAI SDK。核心循环只知道"有一个对象能完成一次模型请求"，
 这就像 Java Service 只依赖 `ModelClient` 接口，而不是直接依赖某个厂商 SDK。
 
 这是什么：定义模型交互的接口和数据传输对象
 Java 类比：类似定义 Service 层的接口和 DTO，遵循依赖倒置原则
 为什么需要：让核心逻辑不依赖具体实现，便于测试和替换不同模型供应商
-“””
+"""
 
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -14,12 +14,12 @@ from typing import Any, Literal, Protocol
 from .messages import AssistantMessage, ChatMessage
 
 # 模型完成原因：类似 Java 的枚举
-FinishReason = Literal[“stop”, “length”, “tool_calls”, “content_filter”, “function_call”]
+FinishReason = Literal["stop", "length", "tool_calls", "content_filter", "function_call"]
 
 
 @dataclass(frozen=True, slots=True)
 class OpenAIToolSchema:
-    “””发给 OpenAI 兼容接口的工具说明。
+    """发给 OpenAI 兼容接口的工具说明。
 
     这是什么：工具定义的 OpenAI 格式数据对象
     Java 类比：类似 record OpenAIToolSchema(String name, String description, Map parameters)
@@ -29,14 +29,14 @@ class OpenAIToolSchema:
         name: 模型调用时使用的函数名
         description: 给模型看的用途说明
         parameters: JSON Schema，描述参数类型和必填字段
-    “””
+    """
 
     name: str  # 工具名称
     description: str  # 工具描述
     parameters: dict[str, Any]  # 参数 JSON Schema
 
     def as_openai(self) -> dict[str, Any]:
-        “””转换为 OpenAI Chat Completions 接口要求的嵌套字典。
+        """转换为 OpenAI Chat Completions 接口要求的嵌套字典。
 
         这是什么：格式转换方法
         Java 类比：类似 toOpenAIFormat() 方法
@@ -44,13 +44,13 @@ class OpenAIToolSchema:
 
         返回：
             dict: OpenAI 格式的工具定义
-        “””
+        """
         return {
-            “type”: “function”,
-            “function”: {
-                “name”: self.name,
-                “description”: self.description,
-                “parameters”: self.parameters,
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
             },
         }
 

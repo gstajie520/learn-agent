@@ -1,4 +1,4 @@
-﻿“””聊天消息领域模型。
+﻿"""聊天消息领域模型。
 
 这是什么：Chat Completions 消息的领域对象定义
 Java 类比：类似定义 Message 接口和各种 record 实现类（SystemMessage, UserMessage 等）
@@ -6,16 +6,16 @@ Java 类比：类似定义 Message 接口和各种 record 实现类（SystemMess
 
 Java 对照：这里的 dataclass 就像 Java 的 record，专门保存数据。
 消息不能随便用 dict，因为模型消息有固定角色，而且工具调用必须和工具结果一一配对。
-“””
+"""
 
 from dataclasses import dataclass
 from typing import Literal
 
-Role = Literal[“system”, “user”, “assistant”, “tool”]  # 消息角色枚举
+Role = Literal["system", "user", "assistant", "tool"]  # 消息角色枚举
 
 
 class MessageContractError(Exception):
-    “””消息历史违反工具调用配对契约。
+    """消息历史违反工具调用配对契约。
 
     这是什么：消息格式异常，表示消息违反了 Chat Completions 协议
     Java 类比：类似 MessageValidationException
@@ -23,65 +23,65 @@ class MessageContractError(Exception):
 
     把错误单独定义成一个类型，等价于 Java 中自定义业务异常，
     这样上层可以准确判断是消息格式错了，而不是网络错了。
-    “””
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCall:
-    “””模型发出的”请程序帮我调用某个工具”的请求。
+    """模型发出的"请程序帮我调用某个工具"的请求。
 
     这是什么：工具调用请求的值对象
     Java 类比：类似 record ToolCall(String id, String name, String arguments)
     为什么需要：封装模型的工具调用意图，关联后续的工具结果
-    “””
+    """
     id: str  # 本次调用唯一编号，用来和后面的 ToolMessage 配对。
     name: str  # 工具名称，例如 shell。
     arguments: str  # 模型生成的 JSON 字符串，必须在工具层再次校验。
 
     def __post_init__(self) -> None:
-        “””dataclass 构造后的验证钩子。
+        """dataclass 构造后的验证钩子。
 
         这是什么：后置验证方法，确保字段值合法
         Java 类比：类似 record 的 compact constructor 或构造器末尾的验证
         为什么需要：在对象创建时立即发现非法数据，避免脏数据传播
-        “””
-        _require_string(self.id, “tool call id”)  # 验证 id 非空
-        _require_string(self.name, “tool call name”)  # 验证 name 非空
-        _require_string(self.arguments, “tool call arguments”, allow_empty=True)  # arguments 可以为空字符串
+        """
+        _require_string(self.id, "tool call id")  # 验证 id 非空
+        _require_string(self.name, "tool call name")  # 验证 name 非空
+        _require_string(self.arguments, "tool call arguments", allow_empty=True)  # arguments 可以为空字符串
 
 
 @dataclass(frozen=True, slots=True)
 class SystemMessage:
-    “””系统提示词：告诉模型它是谁、应该如何工作。
+    """系统提示词：告诉模型它是谁、应该如何工作。
 
     这是什么：系统消息对象，定义模型行为和约束
-    Java 类比：类似 record SystemMessage(String role, String content) 且 role 固定为 “system”
+    Java 类比：类似 record SystemMessage(String role, String content) 且 role 固定为 "system"
     为什么需要：封装系统提示，通过类型确保角色不会被误用
 
     Java 对照：可以把它看成消息 DTO 的一个具体子类型；`role` 是固定值，
     类似 Java 枚举字段，避免调用方把系统消息误标成 user。
-    “””
-    role: Literal[“system”]  # 固定为 system，便于代码判断消息类型。
+    """
+    role: Literal["system"]  # 固定为 system，便于代码判断消息类型。
     content: str  # 系统规则文本。
 
 
 @dataclass(frozen=True, slots=True)
 class UserMessage:
-    “””用户真正输入的问题。
+    """用户真正输入的问题。
 
     这是什么：用户消息对象，封装用户输入
-    Java 类比：类似 record UserMessage(String role, String content) 且 role 固定为 “user”
+    Java 类比：类似 record UserMessage(String role, String content) 且 role 固定为 "user"
     为什么需要：类型安全地表示用户输入，避免角色混淆
 
     `content` 保存业务输入，不负责调用模型；真正的编排由 AgentRunner 完成。
-    “””
-    role: Literal[“user”]  # 固定为 user。
+    """
+    role: Literal["user"]  # 固定为 user。
     content: str  # 用户输入的自然语言问题。
 
 
 @dataclass(frozen=True, slots=True)
 class AssistantMessage:
-    “””模型的一次回答。
+    """模型的一次回答。
 
     这是什么：模型响应消息对象，可包含文本和工具调用
     Java 类比：类似 record AssistantMessage(String role, String content, List<ToolCall> toolCalls)
@@ -89,34 +89,34 @@ class AssistantMessage:
 
     `content` 有文本时表示模型在说话；`tool_calls` 非空时表示模型要程序做事。
     两者可以同时存在，但本章只关心是否存在工具调用。
-    “””
-    role: Literal[“assistant”]  # 固定为 assistant。
+    """
+    role: Literal["assistant"]  # 固定为 assistant。
     content: str | None  # 普通回答文本；请求工具时可能为 None。
     tool_calls: tuple[ToolCall, ...] = ()  # 本次回答要求执行的工具列表。
 
     def __post_init__(self) -> None:
-        “””验证 content 和 tool_calls 的一致性。
+        """验证 content 和 tool_calls 的一致性。
 
         这是什么：后置验证方法，检查消息完整性
         Java 类比：类似 compact constructor 中的验证逻辑
         为什么需要：确保工具调用 ID 唯一，避免配对冲突
-        “””
+        """
         if self.content is not None:  # content 可选，但如果存在则验证
-            _require_string(self.content, “assistant content”, allow_empty=True)
+            _require_string(self.content, "assistant content", allow_empty=True)
         ids = [call.id for call in self.tool_calls]  # 收集所有工具调用 ID
         if len(ids) != len(set(ids)):  # 检查 ID 是否重复
-            raise MessageContractError(“同一条 assistant 消息中的工具调用 ID 不能重复”)
+            raise MessageContractError("同一条 assistant 消息中的工具调用 ID 不能重复")
 
 
 @dataclass(frozen=True, slots=True)
 class ToolMessage:
-    “””程序执行工具后的结果，必须带回原来的 tool_call_id。
+    """程序执行工具后的结果，必须带回原来的 tool_call_id。
 
     这是什么：工具结果消息对象，关联工具调用请求
     Java 类比：类似 record ToolMessage(String role, String content, String toolCallId)
     为什么需要：封装工具执行结果，通过 tool_call_id 与请求配对
-    “””
-    role: Literal[“tool”]  # 固定为 tool。
+    """
+    role: Literal["tool"]  # 固定为 tool。
     content: str  # 工具输出或结构化错误文本。
     tool_call_id: str  # 关联前一个 assistant 工具调用的 ID。
 
@@ -125,7 +125,7 @@ ChatMessage = SystemMessage | UserMessage | AssistantMessage | ToolMessage  # �
 
 
 def _require_string(value: object, field: str, allow_empty: bool = False) -> str:
-    “””统一检查字符串。
+    """统一检查字符串。
 
     这是什么：字符串验证工具函数
     Java 类比：类似 static String requireNonEmpty(Object value, String field)
@@ -133,7 +133,7 @@ def _require_string(value: object, field: str, allow_empty: bool = False) -> str
 
     Python 不像 Java 编译器那样能保证运行时输入一定是字符串，
     所以从模型或 JSON 进入系统时必须主动校验。
-    “””
+    """
     if not isinstance(value, str):  # 类型检查
         raise MessageContractError(f"{field} 必须是字符串")
     if not allow_empty and not value:  # 空值检查

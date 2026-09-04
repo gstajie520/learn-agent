@@ -2,7 +2,7 @@
 
 Java 对照：``SqliteTaskStore`` 可以理解成一个直接使用 JDBC 的 Repository。
 每个公开方法都会打开一个短事务；涉及状态修改时使用 ``BEGIN IMMEDIATE``，
-让“查询 ready 任务”和“把它改成 in_progress”成为不可分割的一步。
+让"查询 ready 任务"和"把它改成 in_progress"成为不可分割的一步。
 
 本模块只使用 Python 标准库 ``sqlite3``。这样学习者可以先看清事务和 SQL，
 不需要同时理解 ORM、Session、Entity 映射等额外概念。
@@ -67,7 +67,7 @@ class SqliteTaskStore:
         ``_clock``：决定租约开始和过期时间，类似 Java ``Clock``。
         ``_lease_duration``：一次认领最多持有任务多久，默认 60 秒。
 
-    ``_`` 前缀是 Python 的“内部字段”约定，类似 Java ``private``，但不是语法级强制。
+    ``_`` 前缀是 Python 的"内部字段"约定，类似 Java ``private``，但不是语法级强制。
     """
 
     def __init__(
@@ -166,15 +166,15 @@ class SqliteTaskStore:
             return self._claim(connection, task, normalized_owner, now)
 
     def claim_next(self, owner: str) -> TaskClaim | None:
-        “””按创建顺序认领第一个 ready 任务；没有候选任务时返回 ``None``。
+        """按创建顺序认领第一个 ready 任务；没有候选任务时返回 ``None``。
 
         这是什么：原子认领队列中第一个可执行任务的核心方法
         Java 类比：类似 @Transactional 方法中 SELECT FOR UPDATE + UPDATE 组合
         为什么需要：让多个 worker 并发认领时不会拿到同一个任务，保证任务分配唯一性
 
         ``None`` 类似 Java 的 ``Optional.empty()``。Python 常用 ``T | None`` 表示
-        “可能有一个 T，也可能没有值”。
-        “””
+        "可能有一个 T，也可能没有值"。
+        """
         normalized_owner = normalize_owner(owner)
         with self._transaction() as connection:
             now = self._now()
@@ -219,7 +219,7 @@ class SqliteTaskStore:
             lease = _parse_time(row["lease_expires_at_utc"])
             if row["status"] == "in_progress" and lease is not None and now >= lease:
                 self._release_expired(connection, now)
-                # 在事务提交后抛出也可以，但这里抛出会回滚“释放租约”。因此先显式提交释放，
+                # 在事务提交后抛出也可以，但这里抛出会回滚"释放租约"。因此先显式提交释放，
                 # 再抛业务异常，让后续 worker 能重新认领。
                 connection.commit()
                 raise TaskLeaseExpiredError(f"任务 {normalized_id} 的认领租约已经过期")

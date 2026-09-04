@@ -1,4 +1,4 @@
-“””第八章：上下文压缩与大工具结果归档。
+"""第八章：上下文压缩与大工具结果归档。
 
 这是什么：实现消息历史压缩和大结果归档的模块
 Java 类比：类似 CompactionService + ArtifactStore 的组合
@@ -6,14 +6,14 @@ Java 类比：类似 CompactionService + ArtifactStore 的组合
 
 Java 对照：
     - ``CompactionManager`` 类似一个 Spring Service，负责把完整会话转换成
-      “本次请求要发送给模型的历史”。它不会修改真正的 canonical history。
+      "本次请求要发送给模型的历史"。它不会修改真正的 canonical history。
     - ``ToolResult`` 类似 Service 的返回 DTO；大 DTO 先写入磁盘，消息里只保留引用。
     - ``MessageGroup`` 类似一个不可拆分的事务边界：assistant 的 tool call 和对应的
       tool result 必须一起保留，否则 OpenAI 消息协议会失配。
 
-这一章故意使用 UTF-8 字节数，而不是”Python 字符串长度”。中文一个字符通常占 3 个
+这一章故意使用 UTF-8 字节数，而不是"Python 字符串长度"。中文一个字符通常占 3 个
 字节，直接使用 ``len(text)`` 会低估上下文大小。
-“””
+"""
 
 from __future__ import annotations
 

@@ -1,12 +1,12 @@
-“””权限策略领域模型。
+"""权限策略领域模型。
 
 这是什么：实现工具调用权限控制的核心模块
 Java 类比：类似 PolicyService + PermissionRule + ApprovalProvider 的组合
 为什么需要：在工具执行前进行权限检查，支持规则、审批和审计的可插拔策略
 
 Java 对照：这里相当于一个独立的 Policy Service 模块，包含不可变 DTO、
-规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答”能不能执行”。
-“””
+规则对象以及可注入的审批/审计接口。它不直接执行工具，只负责回答"能不能执行"。
+"""
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass

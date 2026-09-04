@@ -108,13 +108,13 @@ class AgentRunner:
         """
         # 构造函数只保存依赖和长期配置。和 Java 构造器注入一样，依赖从外部传进来。
         if max_turns <= 0:  # 验证最大轮数必须为正数
-            raise ValueError(“max_turns 必须是正整数”)
+            raise ValueError("max_turns 必须是正整数")
         if not identity.strip():  # 验证身份标识不能为空
-            raise ValueError(“identity 不能为空”)
+            raise ValueError("identity 不能为空")
         if not system_prompt.strip():  # 验证系统提示不能为空
-            raise ValueError(“system_prompt 不能为空”)
+            raise ValueError("system_prompt 不能为空")
         self._model = model  # 模型接口：可以是真实 DeepSeek，也可以是测试 Fake。
-        self._tools = tools  # 工具注册表：保存模型可以调用的”手”。
+        self._tools = tools  # 工具注册表：保存模型可以调用的"手"。
         self._system_prompt = system_prompt  # 每轮都要放在消息最前面的系统约束。
         self._workspace = str(Path(workspace).resolve())  # 工具允许使用的工作目录。
         self._max_turns = max_turns  # 单次任务最多调用模型多少次，防止死循环。
@@ -124,22 +124,22 @@ class AgentRunner:
 
     @property
     def history(self) -> tuple[ChatMessage, ...]:
-        “””返回对话历史的不可变副本。
+        """返回对话历史的不可变副本。
 
         这是什么：历史记录的只读访问器
         Java 类比：类似 public List<ChatMessage> getHistory() { return List.copyOf(history); }
         为什么需要：保护内部状态，防止外部代码修改历史记录
-        “””
+        """
         # tuple 是不可变序列。返回副本，避免外部代码直接修改 Agent 内部历史。
         return tuple(self._history)
 
     def run(self, prompt: str) -> RunResult:
-        “””执行 Agent 主循环，直到模型返回最终答案或达到轮数限制。
+        """执行 Agent 主循环，直到模型返回最终答案或达到轮数限制。
 
         这是什么：Agent 的核心运行方法，实现 ReAct 循环
         Java 类比：类似 public RunResult run(String prompt) throws AgentRunError
         为什么需要：启动 Agent 循环，处理用户请求，返回最终结果
-        “””
+        """
         # 第一步：把用户问题放入历史。system prompt 不放这里，它每轮请求时临时加在最前面。
         self._history.append(user_message(prompt))  # 添加用户消息到历史
 
@@ -151,7 +151,7 @@ class AgentRunner:
             # 在花钱请求模型前，先确认上一轮工具调用都有结果。
             validate_tool_pairing(self._history)  # 校验工具调用和结果是否配对
 
-            # 快照保证”模型看到的工具”和”这一轮真正能执行的工具”完全一致。
+            # 快照保证"模型看到的工具"和"这一轮真正能执行的工具"完全一致。
             snapshot = self._tools.snapshot()  # 获取工具注册表快照
 
             # Python 的 *self._history 类似 Java 中把一个 List 展开放进新 List。

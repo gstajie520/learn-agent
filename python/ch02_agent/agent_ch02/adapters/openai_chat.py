@@ -73,15 +73,15 @@ class OpenAIChatModel(ModelClient):
 
 
 def _to_openai_message(message: Any) -> dict[str, Any]:
-    “””把内部 dataclass 消息转换成供应商要求的字典格式。
+    """把内部 dataclass 消息转换成供应商要求的字典格式。
 
     这是什么：消息格式转换器，将内部消息对象映射为 OpenAI API 格式
     Java 类比：类似 static Map<String, Object> toApiMessage(ChatMessage message)
     为什么需要：隔离内部数据结构和外部 API 契约，避免直接耦合第三方格式
 
     Java 对照：类似把内部 DTO 映射成第三方 SDK Request DTO。
-    函数名前面的单下划线表示”仅供本模块内部使用”，近似 Java 的 private 方法约定。
-    “””
+    函数名前面的单下划线表示"仅供本模块内部使用"，近似 Java 的 private 方法约定。
+    """
     if message.role in {"system", "user"}:  # 系统和用户消息只需 role 和 content
         return {"role": message.role, "content": message.content}
     if message.role == "tool":  # 工具消息需要额外的 tool_call_id 字段

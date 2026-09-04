@@ -1,4 +1,4 @@
-“””聊天消息领域模型。
+"""聊天消息领域模型。
 
 Java 对照：这里的 dataclass 就像 Java 的 record，专门保存数据。
 消息不能随便用 dict，因为模型消息有固定角色，而且工具调用必须和工具结果一一配对。
@@ -6,27 +6,27 @@ Java 对照：这里的 dataclass 就像 Java 的 record，专门保存数据。
 这是什么：定义 Agent 与模型交互的消息结构
 Java 类比：类似定义 DTO 或 record 的包，每种消息对应一个不可变对象
 为什么需要：强类型消息避免角色混淆，确保工具调用与结果正确配对
-“””
+"""
 
 from dataclasses import dataclass
 from typing import Literal
 
 # 消息角色类型：限定只能是这四个值，类似 Java 的枚举
-Role = Literal[“system”, “user”, “assistant”, “tool”]
+Role = Literal["system", "user", "assistant", "tool"]
 
 
 class MessageContractError(Exception):
-    “””消息历史违反工具调用配对契约时抛出的异常。
+    """消息历史违反工具调用配对契约时抛出的异常。
 
     这是什么：消息格式错误的专用异常
     Java 类比：类似自定义的 ValidationException 或 ContractViolationException
     为什么需要：区分消息格式错误和网络错误，让上层精确处理失败原因
-    “””
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCall:
-    “””模型发出的”请程序帮我调用某个工具”的请求。
+    """模型发出的"请程序帮我调用某个工具"的请求。
 
     这是什么：表示模型请求执行工具的数据对象
     Java 类比：类似 record ToolCall(String id, String name, String arguments)
@@ -36,17 +36,17 @@ class ToolCall:
         id: 本次调用唯一编号，用来和后面的 ToolMessage 配对
         name: 工具名称，例如 shell
         arguments: 模型生成的 JSON 字符串，必须在工具层再次校验
-    “””
+    """
 
     id: str  # 唯一调用 ID
     name: str  # 工具名称
     arguments: str  # JSON 参数字符串
 
     def __post_init__(self) -> None:
-        “””创建后立即校验字段，确保不会出现空 ID 或空工具名。”””
-        _require_string(self.id, “tool call id”)
-        _require_string(self.name, “tool call name”)
-        _require_string(self.arguments, “tool call arguments”, allow_empty=True)
+        """创建后立即校验字段，确保不会出现空 ID 或空工具名。"""
+        _require_string(self.id, "tool call id")
+        _require_string(self.name, "tool call name")
+        _require_string(self.arguments, "tool call arguments", allow_empty=True)
 
 
 @dataclass(frozen=True, slots=True)

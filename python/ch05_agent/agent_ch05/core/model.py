@@ -1,11 +1,11 @@
-“””模型边界契约。
+"""模型边界契约。
 
-这里故意不导入 OpenAI SDK。核心循环只知道”有一个对象能完成一次模型请求”，
+这里故意不导入 OpenAI SDK。核心循环只知道"有一个对象能完成一次模型请求"，
 这就像 Java Service 只依赖 `ModelClient` 接口，而不是直接依赖某个厂商 SDK。
 
 Java 对照：这个模块定义了模型层的接口和 DTO，类似 Java 中的
 interface ModelClient + record ModelRequest/ModelReply。
-“””
+"""
 
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -13,35 +13,35 @@ from typing import Any, Literal, Protocol
 from .messages import AssistantMessage, ChatMessage
 
 # 模型停止原因的字面量联合类型，类似 Java 的枚举
-FinishReason = Literal[“stop”, “length”, “tool_calls”, “content_filter”, “function_call”]
+FinishReason = Literal["stop", "length", "tool_calls", "content_filter", "function_call"]
 
 
 @dataclass(frozen=True, slots=True)
 class OpenAIToolSchema:
-    “””发给 OpenAI 兼容接口的工具说明。
+    """发给 OpenAI 兼容接口的工具说明。
 
     这是什么：工具定义的传输对象，用于告诉模型有哪些函数可调用
     Java 类比：类似 record ToolSchema(String name, String description, Map<String, Object> parameters)
     为什么需要：模型 API 不能直接读取 Python 函数，必须用 JSON Schema 描述参数格式
-    “””
+    """
     name: str  # 模型调用时使用的函数名
     description: str  # 给模型看的用途说明，影响模型选择工具的准确性
     parameters: dict[str, Any]  # JSON Schema 对象，定义参数类型和必填字段
 
     def as_openai(self) -> dict[str, Any]:
-        “””转换为 OpenAI Chat Completions 接口要求的嵌套字典。
+        """转换为 OpenAI Chat Completions 接口要求的嵌套字典。
 
         这是什么：序列化方法，把 Python 对象转换成 API 要求的 JSON 格式
         Java 类比：类似 toApiFormat() 方法，返回 Map<String, Object>
-        为什么需要：OpenAI API 要求工具定义必须嵌套在 {“type”: “function”, “function”: {...}} 结构中
-        “””
-        # OpenAI API 要求的固定结构：type 必须是 “function”，实际定义放在 function 字段下
+        为什么需要：OpenAI API 要求工具定义必须嵌套在 {"type": "function", "function": {...}} 结构中
+        """
+        # OpenAI API 要求的固定结构：type 必须是 "function"，实际定义放在 function 字段下
         return {
-            “type”: “function”,
-            “function”: {
-                “name”: self.name,
-                “description”: self.description,
-                “parameters”: self.parameters,
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
             },
         }
 
