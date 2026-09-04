@@ -4,11 +4,11 @@
 
 This repository contains a 20-part, Chinese-language series about building AI agents. Each numbered Markdown file at the repository root is one article; the numeric prefix defines the reading order. Keep an article's prose, diagrams, tables, and code samples together in that file. Images are currently referenced by remote Markdown URLs rather than stored locally.
 
-Runnable companion code lives in `code/`. Each chapter owns a complete runnable TypeScript snapshot under `code/chapters/chNN/src/`, with its cumulative behavioral tests under `code/chapters/chNN/tests/`; do not reintroduce shared root `code/src/` or `code/tests/` copies. Treat `code/ARCHITECTURE.md` and `code/CHAPTER_CONTRACTS.md` as the implementation and acceptance sources of truth.
+Runnable companion code lives in `typescript/`. Each chapter owns a complete runnable TypeScript snapshot under `typescript/chapters/chNN/src/`, with its cumulative behavioral tests under `typescript/chapters/chNN/tests/`; do not reintroduce shared root `typescript/src/` or `typescript/tests/` copies. Treat each chapter's own `src/` snapshot plus its `tests/` suite as the implementation and acceptance sources of truth; `typescript/package.json` scripts (`test:chNN`, `lint`, `format:check`, `verify:snapshot-drift`) are the gates.
 
 ## Build, Test, and Development Commands
 
-The migrated TypeScript project uses npm, Vitest, Biome, and strict TypeScript. Run project commands from `code/`:
+The migrated TypeScript project uses npm, Vitest, Biome, and strict TypeScript. Run project commands from `typescript/`:
 
 ```powershell
 rtk npm ci
@@ -19,7 +19,7 @@ rtk npm run format:check
 rtk npm run build
 ```
 
-Run a migrated chapter from `code/` with either entry form:
+Run a migrated chapter from `typescript/` with either entry form:
 
 ```powershell
 rtk npm run ch01 -- --prompt "列出当前目录"
@@ -64,7 +64,7 @@ rtk npm run agent-tutorial -- run --chapter 19 --prompt "先连接 demo_alpha �
 rtk npm run agent-tutorial -- run --chapter 20 --prompt "验证完整 Harness 的动态上下文、MCP 边界和资源关闭"
 ```
 
-Real runs require a local `.env` copied from `code/.env.example`; chapter 11 and later also require `OPENAI_FALLBACK_MODEL`. Offline tests must inject the model and other external boundaries; do not require secrets or network access. Use the fixed script for each migrated chapter, currently `ch01` through `ch20`; do not claim a later TypeScript chapter is runnable until its script, profile, implementation, tests, and tutorial have all passed review.
+Real runs require a local `.env` copied from `typescript/.env.example`; chapter 11 and later also require `OPENAI_FALLBACK_MODEL`. Offline tests must inject the model and other external boundaries; do not require secrets or network access. Use the fixed script for each migrated chapter, currently `ch01` through `ch20`; do not claim a later TypeScript chapter is runnable until its script, profile, implementation, tests, and tutorial have all passed review.
 
 ## Coding Style & Naming Conventions
 
@@ -78,4 +78,4 @@ For every article edit, read back the complete changed article, confirm fenced b
 
 ## Commit & Pull Request Guidelines
 
-This directory has no Git metadata, so no project-specific commit convention can be inferred. When contributing through Git, use a concise imperative subject, for example `docs: clarify Agent Loop tool handling`. Keep each commit focused on one article or one shared correction. Pull requests should identify affected article numbers, summarize substantive changes, explain technical corrections, and link the relevant issue when one exists. Include a rendered screenshot only when formatting, tables, or image placement changed.
+This directory is a Git repository. Its history uses Conventional Commit types with a chapter scope and a Simplified Chinese subject, for example `docs(ch20): 重写 Full Harness 整合教程`. Follow that convention. Keep each commit focused on one article or one shared correction. Pull requests should identify affected article numbers, summarize substantive changes, explain technical corrections, and link the relevant issue when one exists. Include a rendered screenshot only when formatting, tables, or image placement changed.
